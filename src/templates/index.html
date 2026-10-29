@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Local Ollama Chat</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='chat.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='files.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='views.js') }}" defer></script>
+</head>
+<body>
+  <nav class="view-navigation" aria-label="Workspace views">
+    <button id="open-chat" type="button" aria-controls="chat-view" aria-pressed="true">Chat</button>
+    <button id="open-files" type="button" class="secondary" aria-controls="files-view" aria-pressed="false">Filemanager</button>
+  </nav>
+  <main class="workspace">
+  <section id="chat-view" class="chat" aria-label="Chat">
+    <header>
+      <div><h1>Document chat</h1><p>Gemma 3 1B + nomic-embed-text | Verified document quotations</p></div>
+      <button id="clear" type="button" class="secondary">New chat</button>
+    </header>
+    <section id="conversation" role="log" aria-label="Conversation" aria-live="polite">
+      <p id="empty">Upload documents in Filemanager, then ask a question about their contents.</p>
+    </section>
+    <p id="status" role="status"></p>
+    <p id="error" role="alert" hidden></p>
+    <form id="chat-form">
+      <label for="prompt">Question about your documents</label>
+      <div class="composer">
+        <textarea id="prompt" rows="2" placeholder="Ask about your uploaded documents..." required></textarea>
+        <button id="send" type="submit">Send</button>
+      </div>
+      <p class="hint">Enter to send | Shift+Enter for a new line | Include the topic in each question</p>
+    </form>
+  </section>
+  <aside id="files-view" class="documents" aria-labelledby="documents-title" hidden>
+    <header>
+      <div><h2 id="documents-title">Filemanager</h2><p>Your local files</p></div>
+    </header>
+    <form id="upload-form">
+      <label for="file-input">Choose a file</label>
+      <input id="file-input" type="file" name="file" accept=".pdf,.docx,.txt,.md" required>
+      <button id="upload-button" type="submit">Upload file</button>
+      <p class="hint">PDF, DOCX, TXT or MD. Up to 20 MiB. Uploads are indexed locally before they become available.</p>
+    </form>
+    <button id="index-files" class="secondary" type="button">Index documents</button>
+    <div class="files-heading"><h3>My files <span id="file-count"></span></h3><button id="refresh-files" class="secondary" type="button">Refresh</button></div>
+    <p id="file-status" role="status" aria-live="polite"></p>
+    <p id="file-error" role="alert" hidden></p>
+    <ul id="file-list" aria-label="Uploaded files"></ul>
+    <p class="collector-note">Click a filename to download it. Chat searches all indexed documents and returns verified quotations with sources. Use Index documents for files uploaded before RAG was added. Scanned PDFs require OCR first.</p>
+  </aside>
+  </main>
+</body>
+</html>

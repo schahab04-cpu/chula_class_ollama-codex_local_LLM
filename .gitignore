@@ -1,0 +1,104 @@
+# Local secrets (templates must contain placeholders only)
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.template
+!.env.*.template
+.envrc
+.aws/
+.ssh/
+credentials.json
+secrets.json
+secrets.yaml
+secrets.yml
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Uploaded originals, user data and local application state
+/uploads/
+/user_data/
+/chat_history/
+/sessions/
+/instance/
+
+# Local SQLite databases, journals and vector indexes
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+/embeddings/
+/vectorstore/
+/vector_store/
+/vector_db/
+/chroma_db/
+.chroma/
+*.faiss
+*.hnsw
+
+# In-project Ollama storage and downloaded model weights
+# The normal Ollama installation outside this project is unaffected.
+.ollama/
+/ollama-models/
+/models/blobs/
+/models/manifests/
+*.gguf
+*.ggml
+*.safetensors
+
+# Python environments, bytecode, package output and tool caches
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.ipynb_checkpoints/
+
+# Node dependencies and generated frontend/build output
+node_modules/
+/build/
+/dist/
+/coverage/
+.next/
+.nuxt/
+.parcel-cache/
+.vite/
+*.tsbuildinfo
+
+# Scratch data, server logs and generated test workspaces
+.tmp/
+*.log
+/logs/
+/tests/tmp*/
+/tests/rag-*/
+/tests/files-*/
+
+# Editor backups and operating-system metadata
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+Desktop.ini
