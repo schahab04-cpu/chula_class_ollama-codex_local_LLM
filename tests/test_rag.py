@@ -1,4 +1,3 @@
-import io
 import json
 import shutil
 import unittest
@@ -7,7 +6,7 @@ from uuid import uuid4
 from unittest.mock import patch
 from docx import Document
 from pypdf import PdfWriter
-from src.rag import KnowledgeBase, extract, answer, DocumentError, NOT_FOUND, embed, split_passage
+from src.rag import KnowledgeBase, extract, DocumentError, embed, split_passage
 from src.diagnose import audit
 
 
@@ -67,64 +66,13 @@ class RagTests(unittest.TestCase):
         self.path.unlink()
         self.assertEqual(kb.retrieve("launch"), [])
 
-    @patch("src.rag.ollama")
-    def test_verified_quote_and_sources(self, ollama):
-        quote = self.sources[0]["text"]
-        ollama.return_value = {"message": {"content": json.dumps({"evidence": [{"source": 1, "quote": quote}]})}}
-        text, sources = answer("When is launch?", self.sources, "gemma3:1b")
-        self.assertIn(quote, text)
-        self.assertEqual(sources[0]["location"], "Paragraph 1")
-        self.assertEqual(ollama.call_args.args[1]["options"]["temperature"], 0)
-        choices = ollama.call_args.args[1]["format"]["properties"]["evidence"]["items"]["anyOf"]
-        self.assertEqual(choices[0]["properties"]["source"]["enum"], [1])
-        self.assertIn(quote, choices[0]["properties"]["quote"]["enum"])
-        self.assertTrue(all(candidate in quote for candidate in
-                            choices[0]["properties"]["quote"]["enum"]))
 
-    @patch("src.rag.ollama")
-    def test_fabricated_quotes_invalid_references_and_missing_answers_abstain(self, ollama):
-        for evidence in ([], [{"source": 1, "quote": "Launch is in 2099."}],
-                         [{"source": 9, "quote": self.sources[0]["text"]}],
-                         [{"source": True, "quote": self.sources[0]["text"]}], [None]):
-            ollama.return_value = {"message": {"content": json.dumps({"evidence": evidence})}}
-            self.assertEqual(answer("launch", self.sources, "gemma3:1b"), (NOT_FOUND, []))
-        ollama.return_value = {"message": {"content": "not json"}}
-        self.assertEqual(answer("launch", self.sources, "gemma3:1b"), (NOT_FOUND, []))
-
-    @patch("src.rag.ollama")
-    def test_short_exact_answers_keep_passage_gate_and_quote_checks(self, ollama):
-        self.sources[0]["text"] = "The launch code is Q7. The launch team has 3 members."
-        for quote, question in (("Q7", "What is the launch code?"),
-                                ("3", "How many launch team members?")):
-            ollama.return_value = {"message": {"content": json.dumps({"evidence": [
-                {"source": 1, "quote": quote}]})}}
-            text, citations = answer(question, self.sources, "gemma3:1b")
-            self.assertIn(quote, text)
-            self.assertEqual(citations[0]["quote"], quote)
-            self.assertEqual(answer("What is the launch budget?", self.sources, "gemma3:1b"),
-                             (NOT_FOUND, []))
-        for quote in ("", " ", "Q8", " Q7"):
-            ollama.return_value = {"message": {"content": json.dumps({"evidence": [
-                {"source": 1, "quote": quote}]})}}
-            self.assertEqual(answer("What is the launch code?", self.sources, "gemma3:1b"),
-                             (NOT_FOUND, []))
-
-    @patch("src.rag.ollama")
-    def test_no_documents_never_calls_model(self, ollama):
-        self.assertEqual(answer("launch", [], "gemma3:1b"), (NOT_FOUND, []))
-        ollama.assert_not_called()
-
-    @patch("src.rag.ollama", return_value={"embeddings": [[1.0, 0.0]]})
+    @patch("src.ollama_client.ollama", return_value={"embeddings": [[1.0, 0.0]]})
     def test_embedding_prefixes_and_no_truncation(self, ollama):
         embed(["question"], "nomic-embed-text:latest", query=True)
         self.assertEqual(ollama.call_args.args[1]["input"], ["search_query: question"])
         self.assertFalse(ollama.call_args.args[1]["truncate"])
 
-    @patch("src.rag.ollama")
-    def test_real_but_irrelevant_quote_does_not_answer_missing_budget(self, ollama):
-        ollama.return_value = {"message": {"content": json.dumps({"evidence": [
-            {"source": 1, "quote": self.sources[0]["text"]}]})}}
-        self.assertEqual(answer("What is the launch budget?", self.sources, "gemma3:1b"), (NOT_FOUND, []))
 
     def test_long_chunks_preserve_words_and_sentence_boundaries(self):
         text = " ".join(f"Sentence {i} contains useful lecture information." for i in range(90))
@@ -184,30 +132,3 @@ class RagTests(unittest.TestCase):
                 db.execute("UPDATE documents SET chunks=?", (json.dumps(stored),))
             with self.assertRaises((DocumentError, ValueError)):
                 kb.retrieve("launch date")
-
-    @patch("src.rag.ollama")
-    def test_slide_fragment_accepted_and_gate_checks_selected_passage(self, ollama):
-        self.sources[0]["text"] = "Launch schedule: 15 June 2027"
-        ollama.return_value = {"message": {"content": json.dumps({"evidence": [
-            {"source": 1, "quote": "15 June 2027"}]})}}
-        text, citations = answer("When is launch?", self.sources, "gemma3:1b")
-        self.assertIn("15 June 2027", text)
-        self.assertEqual(len(citations), 1)
-        self.sources.append({**self.sources[0], "text": "Launch budget is unknown."})
-        self.assertEqual(answer("launch budget", self.sources, "gemma3:1b"), (NOT_FOUND, []))
-
-    @patch("src.rag.ollama")
-    def test_empty_selection_recovers_specific_literal_passage_only(self, ollama):
-        ollama.return_value = {"message": {"content": '{"evidence": []}'}}
-        text, citations = answer("What is the launch date?", self.sources, "gemma3:1b")
-        self.assertIn(self.sources[0]["text"], text)
-        self.assertEqual(citations[0]["quote"], self.sources[0]["text"])
-        for question in ("launch", "What is the launch budget?", "What is the departure day?"):
-            self.assertEqual(answer(question, self.sources, "gemma3:1b"), (NOT_FOUND, []))
-
-    @patch("src.rag.ollama")
-    def test_literal_fallback_never_repairs_invalid_model_selections(self, ollama):
-        for evidence in ([{"source": 1, "quote": "Launch date is 2099."}],
-                         [{"source": 8, "quote": self.sources[0]["text"]}], None):
-            ollama.return_value = {"message": {"content": json.dumps({"evidence": evidence})}}
-            self.assertEqual(answer("What is the launch date?", self.sources, "gemma3:1b"), (NOT_FOUND, []))

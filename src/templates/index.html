@@ -17,7 +17,7 @@
   <main class="workspace">
   <section id="chat-view" class="chat" aria-label="Chat">
     <header>
-      <div><h1>Document chat</h1><p>Gemma 3 1B + nomic-embed-text | Verified document quotations</p></div>
+      <div><h1>Document chat</h1><p>Local Ollama | Answers from your files, with sources</p></div>
       <button id="clear" type="button" class="secondary">New chat</button>
     </header>
     <section id="conversation" role="log" aria-label="Conversation" aria-live="polite">
@@ -49,7 +49,7 @@
     <p id="file-status" role="status" aria-live="polite"></p>
     <p id="file-error" role="alert" hidden></p>
     <ul id="file-list" aria-label="Uploaded files"></ul>
-    <p class="collector-note">Click a filename to download it. Chat searches all indexed documents and returns verified quotations with sources. Use Index documents for files uploaded before RAG was added. Scanned PDFs require OCR first.</p>
+    <p class="collector-note">Chat searches your indexed documents and explains what it finds. Expand the source text below an answer to check it, or click a filename to download the original. Scanned PDFs require OCR first.</p>
   </aside>
   </main>
 </body>

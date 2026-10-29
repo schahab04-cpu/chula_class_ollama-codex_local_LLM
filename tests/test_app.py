@@ -1,6 +1,6 @@
 import unittest
 from unittest.mock import patch, MagicMock
-from src.app import app
+from src.app import app, main
 from src.rag import DocumentError, NOT_FOUND
 
 
@@ -8,6 +8,12 @@ class ChatTests(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
         self.messages = [{"role": "user", "content": "What is the launch date?"}]
+
+    @patch("src.app.app.run")
+    def test_startup_uses_only_localhost_port_5000(self, run):
+        with patch("sys.argv", ["app.py"]):
+            main()
+        run.assert_called_once_with(host="127.0.0.1", port=5000, debug=False)
 
     def test_page_and_assets(self):
         for path in ("/", "/static/chat.js", "/static/files.js", "/static/views.js", "/static/style.css"):

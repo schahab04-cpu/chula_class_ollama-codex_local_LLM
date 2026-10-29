@@ -1,4 +1,4 @@
-"""Start document chat from the project root with python3 app.py."""
+"""Single project launcher; open http://127.0.0.1:5000."""
 
 from src.app import app, main
 

@@ -1,4 +1,4 @@
-"""Read-only extraction/index audit; optional live retrieval and evidence probe."""
+"""Read-only extraction/index audit; optional live retrieval and answer probe."""
 import argparse
 import hashlib
 import json
@@ -59,7 +59,7 @@ def audit(folder):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--question", help="Run a live query using the existing index; does not reindex documents.")
-    parser.add_argument("--answer", action="store_true", help="Also run Gemma quote selection (requires --question).")
+    parser.add_argument("--answer", action="store_true", help="Also generate a Gemma answer (requires --question).")
     args = parser.parse_args()
     if args.answer and not args.question:
         parser.error("--answer requires --question")

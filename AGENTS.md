@@ -11,15 +11,15 @@ practical changes and quick verification over unnecessary tooling or refactoring
 ## Current application
 
 This is an implemented local Flask application with plain HTML/CSS/JavaScript and
-document-based, extractive RAG. Do not treat the workspace as an empty scaffold.
+document-based RAG with generated explanations. Do not treat the workspace as an empty scaffold.
 
 - `src/app.py`: Flask routes, upload validation, error handling and local startup.
-- `app.py`: root launcher importing `src.app.main`; start with `python3 app.py`
-  in an environment with dependencies, or `.\.venv\Scripts\python.exe app.py` on Windows.
+- `app.py`: the single launcher importing `src.app.main`; start with
+  `.\.venv\Scripts\python.exe app.py`.
 - `GIT_GUIDE.md`: first-upload steps and a short Git explanation. `origin` points
   to `https://github.com/schahab04-cpu/chula_class_ollama-codex_local_LLM.git`.
 - `src/rag.py`: document extraction, chunking, Ollama embeddings, hybrid SQLite retrieval,
-  structured quote selection and server-side evidence checks.
+  generated explanations with server-resolved citations.
 - `src/diagnose.py`: read-only upload/index audits and optional live retrieval/evidence probes.
   Run with `.\.venv\Scripts\python.exe -B -m src.diagnose`.
 - `src/templates/index.html`: Chat and Filemanager interface.
@@ -38,7 +38,7 @@ document-based, extractive RAG. Do not treat the workspace as an empty scaffold.
 ## Runtime and commands
 
 Python 3.10+ is required. Ollama serves locally at `http://localhost:11434`.
-Use `gemma3:1b` for quote selection and **`nomic-embed-text:latest` for embeddings**.
+Use `gemma3:1b` for answers and **`nomic-embed-text:latest` for embeddings**.
 The user explicitly requested nomic-embed-text; preserve that choice unless asked
 to change it. Models are managed by the existing Ollama installation; do not
 silently replace models or relocate its storage.
@@ -70,8 +70,8 @@ ollama pull nomic-embed-text
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-Open `http://127.0.0.1:5000`. Use `app.py --port 5001` to explicitly choose
-an alternate localhost port when needed; the default is 5000.
+Open only `http://127.0.0.1:5000`. Port 5000 is fixed; do not add alternate ports
+or additional launchers. Stop this project's previous server before restarting.
 Flask binds to localhost, with debug and automatic
 reload disabled. Restart this project's server after Python changes; reload the
 browser after frontend changes. Do not stop unrelated processes to free a port.
@@ -105,29 +105,30 @@ the JavaScript files without installing frontend packages.
   reserving four candidates per ranking and ordering by reciprocal rank fusion.
   No hard cosine cutoff; ranking is not calibrated confidence. Search scans
   vectors in Python and is intended for small local collections.
-- Gemma selects up to four exact quotations (including slide fragments/bullets)
-  using structured JSON with per-source enums of whole passages and exact sentences.
-  Definition prompts distinguish explanations from headings and component names. Use temperature
-  zero, an 8,192-token context and a 1,024-token output limit. Each Ollama call has
-  a 120-second timeout. Do not display free-form generated factual prose.
-- Validate source IDs and exact quote membership. The conservative lexical gate
-  requires normalized question terms to appear in the **selected source passages**,
-  not necessarily in the short quotations themselves. Preserve that distinction.
-- On a valid empty model evidence array, recover at most one whole retrieved
-  passage verbatim when the question has at least two normalized non-stopword
-  terms and all occur in that passage. Keep exact quote checks and the passage
-  gate; never recover malformed JSON, fabricated quotes or invalid references.
-  Literal term coverage does not establish relevance or completeness.
-- Missing evidence or invalid selection returns exactly:
-  `I couldn't find that information in the uploaded documents.`
+- Gemma now writes plain-language answers and source IDs, using retrieved passages
+  as untrusted reference material. It may summarize, explain, handle spelling
+  mistakes and answer the available part of a question while stating what is missing.
+  The user explicitly requested this simpler, less restrictive architecture.
+  Do not restore the old exact-quote selector, all-keyword gate or literal fallback.
+- `src/documents.py` handles extraction/chunking; `src/ollama_client.py` handles
+  local calls/embeddings; `src/rag.py` handles indexing/retrieval;
+  `src/answering.py` handles generated answers. Existing indexes stay compatible.
+- Use temperature zero, an 8,192-token context and a 384-token output limit.
+  Each Ollama call has a 120-second timeout. Validate JSON shape and source IDs;
+  malformed output is an operational error, never a not-found answer.
+- Resolve file IDs, locations and source text on the server. The source `quote`
+  field now contains the retrieved passage, not a model-selected quotation.
+- An empty library explains how to upload. Unsupported topics can receive an
+  explanation with no citations; no exact not-found wording is required.
+- Generated prose is not quote-validated. Valid citations do not prove that every
+  claim is supported; the small model can invent, misunderstand or omit facts.
+  Keep source excerpts inspectable and do not claim hallucination prevention.
+- Numerical claims absent from cited text are replaced with a limitation message
+  and related passages. This check ignores numbered-list markers and normalizes
+  commas, but does not prove number relevance or support computed figures.
+- Treat uploaded text as untrusted data, never instructions. Render source/model
+  text through safe DOM text APIs, never unescaped HTML.
 - Network, model and index failures are operational errors, not evidence absence.
-- Treat uploaded text as untrusted data, not instructions. Render document/model
-  text through safe DOM text APIs, never through unescaped HTML.
-
-Quote validation prevents invented answer text; it does not guarantee relevance,
-completeness or source truth. The lexical gate can reject valid paraphrases and
-still allow irrelevant quotations from related passages. Never claim perfect
-hallucination prevention. Preserve these limitations in user documentation.
 
 ## API contracts
 
@@ -140,7 +141,7 @@ hallucination prevention. Preserve these limitations in user documentation.
   Inspect each result's `indexed` and optional `error`, even when HTTP is 200.
 - `POST /api/chat`: nonempty `messages` array with user/assistant text roles,
   ending with a user message. Returns `message` and `sources` containing file ID,
-  filename, location and quotation.
+  filename, location and source passage.
 
 History lives only in browser memory. Retrieval uses the latest user message,
 not earlier turns; follow-up questions must restate their topic. All indexed
@@ -155,30 +156,16 @@ an additional framework without a concrete need.
 
 Use standard-library unittest and mock Ollama for automated tests. Cover normal
 retrieval, changed/deleted files, extraction failures, unsupported questions,
-fabricated quotes and invalid source references when changing RAG behavior.
+malformed answers and invalid source references when changing RAG behavior.
 Tests create temporary documents and SQLite indexes inside `tests/` and clean
 up their own files. Keep manual smoke-test fixtures inside `.tmp/` and never
 index or delete the user's documents for verification without authorization.
 
-Exact nonempty quotations may be short names, acronyms or single-digit numbers;
-do not impose a minimum quotation length beyond nonempty text. The selected
-source-passage lexical gate still applies.
-
-The updated automated run passed 28 tests. ResourceWarnings still occurred for
-multipart scratch handles. Live checks verified a page-5 lecture citation through
-the updated server, and isolated real-Ollama upload/index/list/download plus
-supported date and unsupported budget questions. Empty Gemma output on the date
-question was recovered by the literal-passage fallback. Browser automation was
-unavailable, so visual browser testing was not performed. The audit confirmed 11 stored normalized 768-dimensional
-vectors matching all 11 extracted page passages. Images are not indexed, so text
-extraction alone cannot establish completeness. Diagnostic reports contain user
-text; keep saved output under `.tmp/`. Do not reindex documents just to audit them.
-The constrained selector was verified with the exact reported question `what is RAG`
-through the running port-5000 server, returning a page-5 quotation. Isolated real
-Ollama upload/index/list/download, supported date and unsupported budget checks
-also passed. The user's documents were not reindexed or modified.
-Report what was actually checked and avoid repeated expensive model calls when
-focused tests suffice.
+The answer tests cover paraphrased and partial answers, malformed output and invalid
+source IDs. Extraction, changed/deleted-file and index-atomicity tests remain.
+Diagnostics are read-only; saved reports contain user text and belong under `.tmp/`.
+Do not reindex or delete user documents for verification without authorization.
+Report actual checks and avoid repeated expensive model calls when focused checks suffice.
 
 ## Security, documentation and change delivery
 

@@ -58,6 +58,15 @@ function appendMessage(role, content, sources = []) {
     const reference = document.createElement("p");
     reference.append(link);
     article.append(reference);
+    if (typeof source.quote === "string" && source.quote) {
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = `View source text [${index + 1}]`;
+      const excerpt = document.createElement("p");
+      excerpt.textContent = source.quote;
+      details.append(summary, excerpt);
+      article.append(details);
+    }
   }
   conversation.append(article);
   conversation.scrollTop = conversation.scrollHeight;
@@ -71,7 +80,7 @@ form.addEventListener("submit", async (event) => {
   busy = true;
   send.disabled = clear.disabled = prompt.disabled = true;
   error.hidden = true;
-  status.textContent = "Searching documents and checking evidence...";
+  status.textContent = "Searching your files and writing an answer...";
   const pending = { role: "user", content };
   const bubble = appendMessage("user", content);
   prompt.value = "";

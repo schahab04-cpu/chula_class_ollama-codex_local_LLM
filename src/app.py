@@ -138,8 +138,11 @@ def chat():
         return jsonify(error="Ollama took too long. Please retry."), 504
     except (URLError, ConnectionError, HTTPException):
         return jsonify(error="Cannot complete retrieval. Check that Ollama and both models are available."), 503
-    except (ValueError, UnicodeError, OSError, sqlite3.Error):
-        return jsonify(error="Could not read the knowledge index or Ollama response. Reindex documents and retry."), 502
+    except ValueError as error:
+        app.logger.warning("Document answer failed: %s", error)
+        return jsonify(error="Ollama returned an invalid response. Please retry; check the server log if it continues."), 502
+    except (UnicodeError, OSError, sqlite3.Error):
+        return jsonify(error="Could not read the knowledge index. Check the files and reindex documents."), 502
 
 
 @app.post("/api/files/index")
@@ -161,13 +164,6 @@ def index_files():
 
 def main():
     parser = argparse.ArgumentParser(description="Run local Ollama document chat.")
-    parser.add_argument("--port", type=int, default=5000)
-    args = parser.parse_args()
-    if not 1 <= args.port <= 65535:
-        parser.error("--port must be between 1 and 65535")
+    parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    app.run(host="127.0.0.1", port=args.port, debug=False)
-
-
-if __name__ == "__main__":
-    main()
+    app.run(host="127.0.0.1", port=5000, debug=False)
