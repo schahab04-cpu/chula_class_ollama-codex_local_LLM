@@ -1,5 +1,6 @@
-"""Local Flask interface for Ollama chat."""
+"""Local Flask interface for general and document chat through Ollama."""
 
+import hashlib
 import socket
 import logging
 import argparse
@@ -15,8 +16,10 @@ from flask import Flask, jsonify, render_template, request, send_from_directory
 from werkzeug.utils import secure_filename
 try:
     from .rag import KnowledgeBase, DocumentError, SUPPORTED, answer
+    from .answering import general_answer, identity_response, is_document_question, library_response
 except ImportError:
     from rag import KnowledgeBase, DocumentError, SUPPORTED, answer
+    from answering import general_answer, identity_response, is_document_question, library_response
 
 
 def knowledge_base():
@@ -32,12 +35,35 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
 app.config["UPLOAD_FOLDER"] = Path(__file__).resolve().parent.parent / "uploads"
 UPLOAD_LIMIT = 20 * 1024 * 1024
+HASH_SUFFIX = ".sha256"
 
 
 def upload_folder():
     folder = Path(app.config["UPLOAD_FOLDER"])
     folder.mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def is_document(path):
+    return (path.is_file() and not path.is_symlink() and "--" in path.name
+            and path.suffix != HASH_SUFFIX)
+
+
+def hash_path(path):
+    return path.with_name(path.name + HASH_SUFFIX)
+
+
+def find_duplicate(digest):
+    """Return the uploaded document with this hash, recording any missing hashes."""
+    for path in upload_folder().iterdir():
+        if not is_document(path):
+            continue
+        stored = hash_path(path)
+        if not stored.exists():
+            stored.write_text(knowledge_base().fingerprint(path))
+        if stored.read_text().strip() == digest:
+            return path
+    return None
 
 
 def file_info(path):
@@ -49,8 +75,7 @@ def file_info(path):
 @app.get("/api/files")
 def list_files():
     try:
-        files = [file_info(path) for path in upload_folder().iterdir()
-                 if path.is_file() and not path.is_symlink() and "--" in path.name]
+        files = [file_info(path) for path in upload_folder().iterdir() if is_document(path)]
         return jsonify(files=sorted(files, key=lambda item: item["name"].lower()))
     except (OSError, sqlite3.Error):
         return jsonify(error="Cannot read the uploaded files folder."), 500
@@ -69,14 +94,22 @@ def upload_file():
         return jsonify(error="Supported file types: PDF, DOCX, TXT and MD."), 400
     destination = None
     try:
+        digest = hashlib.sha256(uploaded.read()).hexdigest()
+        uploaded.seek(0)
+        duplicate = find_duplicate(digest)
+        if duplicate is not None:
+            return jsonify(file=file_info(duplicate), duplicate=True), 200
         destination = upload_folder() / f"{uuid4().hex}--{name[:180]}"
         uploaded.save(destination)
         knowledge_base().index(destination)
+        # Written last so a failed upload can be retried.
+        hash_path(destination).write_text(digest)
         return jsonify(file=file_info(destination)), 201
     except (DocumentError, ValueError, URLError, TimeoutError, OSError, HTTPException, sqlite3.Error) as error:
         if destination is not None:
             with suppress(OSError):
                 destination.unlink(missing_ok=True)
+                hash_path(destination).unlink(missing_ok=True)
         if isinstance(error, DocumentError):
             return jsonify(error=str(error)), 400
         return jsonify(error="Upload could not be indexed. Check Ollama, nomic-embed-text and disk permissions; then retry."), 503
@@ -88,12 +121,42 @@ def upload_file():
 def download_file(file_id):
     folder = upload_folder()
     path = folder / file_id
-    if path.is_symlink() or "--" not in file_id:
+    if path.is_symlink() or "--" not in file_id or path.suffix == HASH_SUFFIX:
         return jsonify(error="File not found."), 404
     return send_from_directory(folder, file_id, as_attachment=True,
                                download_name=file_id.split("--", 1)[-1])
 
-MODEL = "gemma3:1b"
+
+@app.get("/api/files/<file_id>/preview")
+def preview_file(file_id):
+    folder = upload_folder()
+    path = folder / file_id
+    if Path(file_id).name != file_id or not is_document(path) or path.suffix.lower() != ".pdf":
+        return jsonify(error="File not found."), 404
+    response = send_from_directory(folder, file_id, mimetype="application/pdf")
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    return response
+
+
+@app.delete("/api/files/<file_id>")
+def delete_file(file_id):
+    folder = upload_folder()
+    if Path(file_id).name != file_id or "--" not in file_id:
+        return jsonify(error="File not found."), 404
+    path = folder / file_id
+    if not is_document(path):
+        return jsonify(error="File not found."), 404
+    try:
+        path.unlink()
+        hash_path(path).unlink(missing_ok=True)
+        with knowledge_base().connect() as db:
+            db.execute("DELETE FROM documents WHERE id=?", (file_id,))
+        return "", 204
+    except (OSError, sqlite3.Error):
+        app.logger.exception("Could not remove uploaded document %s", file_id)
+        return jsonify(error="Could not remove this document. Check file and index permissions."), 500
+
+MODEL = "qwen3:1.7b"
 
 
 @app.get("/")
@@ -128,10 +191,21 @@ def chat():
     question = messages[-1]["content"].strip()
     if len(question) > 4000:
         return jsonify(error="Keep questions under 4000 characters."), 400
+    identity = identity_response(question, MODEL)
+    if identity:
+        return jsonify(message={"role": "assistant", "content": identity}, sources=[], mode="general")
     try:
+        names = sorted((path.name.split("--", 1)[-1] for path in upload_folder().iterdir()
+                        if is_document(path)), key=str.lower)
+        library = library_response(question, names)
+        if library:
+            return jsonify(message={"role": "assistant", "content": library}, sources=[], mode="library")
         sources = knowledge_base().retrieve(question)
+        if not is_document_question(question, sources):
+            content = general_answer(messages, MODEL)
+            return jsonify(message={"role": "assistant", "content": content}, sources=[], mode="general")
         content, citations = answer(question, sources, MODEL)
-        return jsonify(message={"role": "assistant", "content": content}, sources=citations)
+        return jsonify(message={"role": "assistant", "content": content}, sources=citations, mode="documents")
     except DocumentError as error:
         return jsonify(error=str(error)), 409
     except (TimeoutError, socket.timeout):
@@ -139,7 +213,7 @@ def chat():
     except (URLError, ConnectionError, HTTPException):
         return jsonify(error="Cannot complete retrieval. Check that Ollama and both models are available."), 503
     except ValueError as error:
-        app.logger.warning("Document answer failed: %s", error)
+        app.logger.warning("Answer failed: %s", error)
         return jsonify(error="Ollama returned an invalid response. Please retry; check the server log if it continues."), 502
     except (UnicodeError, OSError, sqlite3.Error):
         return jsonify(error="Could not read the knowledge index. Check the files and reindex documents."), 502
@@ -166,4 +240,4 @@ def main():
     parser = argparse.ArgumentParser(description="Run local Ollama document chat.")
     parser.parse_args()
     logging.basicConfig(level=logging.INFO)
-    app.run(host="127.0.0.1", port=5000, debug=False)
+    app.run(host="127.0.0.1", port=5050, debug=False)

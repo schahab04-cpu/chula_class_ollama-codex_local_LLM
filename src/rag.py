@@ -2,6 +2,7 @@
 import hashlib
 import json
 import logging
+import math
 import re
 import sqlite3
 from contextlib import contextmanager
@@ -59,10 +60,10 @@ class KnowledgeBase:
             return []
         for path in paths:
             if not self.ready(path):
-                raise DocumentError("Some documents are not indexed. Open Filemanager and click Index documents.")
+                raise DocumentError("Some documents are not indexed. Click Index documents in the Documents panel.")
         query = embed([question], self.model, query=True)[0]
         candidates = []
-        question_terms = terms(question)
+        question_terms = expanded_terms(question)
         with self.connect() as db:
             rows = {row["id"]: row for row in db.execute("SELECT * FROM documents")}
         for path in paths:
@@ -84,7 +85,12 @@ class KnowledgeBase:
         # distractors. Reciprocal ranks combine the two scales without treating
         # term coverage or cosine similarity as a confidence probability.
         semantic = sorted(range(len(candidates)), key=lambda i: candidates[i]["score"], reverse=True)
-        lexical_scores = [len(question_terms & terms(c["text"])) for c in candidates]
+        document_terms = [terms(c["text"]) for c in candidates]
+        document_frequency = {term: sum(term in words for words in document_terms)
+                              for term in question_terms}
+        lexical_scores = [sum(math.log1p(len(candidates) / (1 + document_frequency[term]))
+                              for term in question_terms & words)
+                          for words in document_terms]
         lexical = sorted((i for i in range(len(candidates)) if lexical_scores[i]),
                          key=lambda i: (lexical_scores[i], candidates[i]["score"]), reverse=True)
         fused = {}
@@ -118,4 +124,17 @@ def terms(text):
         if len(word) > 4 and word.endswith("e"):
             word = word[:-1]
         result.add(word)
+    return result
+
+
+def expanded_terms(text):
+    result = terms(text)
+    expansions = {
+        "ip": {"intellectual", "property", "invention", "copyright", "patent"},
+        "right": {"owner", "ownership", "own", "assign", "assignment", "transfer"},
+        "assign": {"owner", "ownership", "own", "transfer", "invention", "inventor"},
+        "assignment": {"owner", "ownership", "own", "transfer", "invention", "inventor"},
+    }
+    for term in tuple(result):
+        result.update(expansions.get(term, ()))
     return result

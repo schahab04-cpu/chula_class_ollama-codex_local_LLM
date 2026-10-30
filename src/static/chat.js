@@ -37,12 +37,12 @@ function appendLinkedText(element, content) {
   element.append(document.createTextNode(content.slice(offset)));
 }
 
-function appendMessage(role, content, sources = []) {
+function appendMessage(role, content, sources = [], mode = "") {
   document.querySelector("#empty")?.remove();
   const article = document.createElement("article");
   article.className = `message ${role}`;
   const label = document.createElement("strong");
-  label.textContent = role === "user" ? "You" : "Gemma";
+  label.textContent = role === "user" ? "You" : "Qwen";
   const text = document.createElement("p");
   if (role === "assistant") {
     appendLinkedText(text, content);
@@ -50,6 +50,12 @@ function appendMessage(role, content, sources = []) {
     text.textContent = content;
   }
   article.append(label, text);
+  if (mode === "general") {
+    const note = document.createElement("p");
+    note.className = "answer-mode";
+    note.textContent = "General answer, not from your documents";
+    article.append(note);
+  }
   for (const [index, source] of sources.entries()) {
     const link = document.createElement("a");
     link.href = `/api/files/${encodeURIComponent(source.file_id)}`;
@@ -80,7 +86,8 @@ form.addEventListener("submit", async (event) => {
   busy = true;
   send.disabled = clear.disabled = prompt.disabled = true;
   error.hidden = true;
-  status.textContent = "Searching your files and writing an answer...";
+  status.setAttribute("aria-busy", "true");
+  status.textContent = "Thinking...";
   const pending = { role: "user", content };
   const bubble = appendMessage("user", content);
   prompt.value = "";
@@ -94,7 +101,7 @@ form.addEventListener("submit", async (event) => {
     if (!response.ok) throw new Error(data.error || "The request failed. Please try again.");
     if (typeof data.message?.content !== "string") throw new Error("The server returned an invalid answer.");
     messages.push(pending, data.message);
-    appendMessage("assistant", data.message.content, data.sources || []);
+    appendMessage("assistant", data.message.content, data.sources || [], data.mode);
   } catch (failure) {
     bubble.remove();
     prompt.value = content;
@@ -105,6 +112,7 @@ form.addEventListener("submit", async (event) => {
   } finally {
     busy = false;
     send.disabled = clear.disabled = prompt.disabled = false;
+    status.setAttribute("aria-busy", "false");
     status.textContent = "";
     prompt.focus();
   }

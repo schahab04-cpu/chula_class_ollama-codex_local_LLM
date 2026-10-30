@@ -7,50 +7,57 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='chat.js') }}" defer></script>
   <script src="{{ url_for('static', filename='files.js') }}" defer></script>
-  <script src="{{ url_for('static', filename='views.js') }}" defer></script>
 </head>
 <body>
-  <nav class="view-navigation" aria-label="Workspace views">
-    <button id="open-chat" type="button" aria-controls="chat-view" aria-pressed="true">Chat</button>
-    <button id="open-files" type="button" class="secondary" aria-controls="files-view" aria-pressed="false">Filemanager</button>
-  </nav>
   <main class="workspace">
   <section id="chat-view" class="chat" aria-label="Chat">
     <header>
-      <div><h1>Document chat</h1><p>Local Ollama | Answers from your files, with sources</p></div>
+      <div><h1>Local chat</h1><p>Local Ollama | General answers, or answers from your files with sources</p></div>
       <button id="clear" type="button" class="secondary">New chat</button>
     </header>
     <section id="conversation" role="log" aria-label="Conversation" aria-live="polite">
-      <p id="empty">Upload documents in Filemanager, then ask a question about their contents.</p>
+      <p id="empty">Ask anything, or upload documents and ask about their contents.</p>
     </section>
     <p id="status" role="status"></p>
     <p id="error" role="alert" hidden></p>
     <form id="chat-form">
-      <label for="prompt">Question about your documents</label>
+      <label for="prompt">Your question</label>
       <div class="composer">
-        <textarea id="prompt" rows="2" placeholder="Ask about your uploaded documents..." required></textarea>
+        <textarea id="prompt" rows="2" placeholder="Ask anything, or ask about your documents..." required></textarea>
         <button id="send" type="submit">Send</button>
       </div>
       <p class="hint">Enter to send | Shift+Enter for a new line | Include the topic in each question</p>
     </form>
   </section>
-  <aside id="files-view" class="documents" aria-labelledby="documents-title" hidden>
+  <aside id="files-view" class="documents" aria-labelledby="documents-title">
     <header>
-      <div><h2 id="documents-title">Filemanager</h2><p>Your local files</p></div>
+      <div><h2 id="documents-title">Documents</h2><p>Your local files</p></div>
     </header>
     <form id="upload-form">
-      <label for="file-input">Choose a file</label>
-      <input id="file-input" type="file" name="file" accept=".pdf,.docx,.txt,.md" required>
-      <button id="upload-button" type="submit">Upload file</button>
-      <p class="hint">PDF, DOCX, TXT or MD. Up to 20 MiB. Uploads are indexed locally before they become available.</p>
+      <label id="dropzone" class="dropzone" for="file-input">
+        <input id="file-input" type="file" name="files" accept=".pdf,.docx,.txt,.md" multiple>
+        <span class="dropzone-title">Drop documents here</span>
+        <span>or click to choose multiple files</span>
+        <span class="dropzone-hint">PDF, DOCX, TXT or MD · up to 20 MiB each</span>
+      </label>
     </form>
-    <button id="index-files" class="secondary" type="button">Index documents</button>
-    <div class="files-heading"><h3>My files <span id="file-count"></span></h3><button id="refresh-files" class="secondary" type="button">Refresh</button></div>
+    <div class="files-heading"><h3>Uploaded documents <span id="file-count"></span></h3><button id="refresh-files" class="secondary" type="button" aria-label="Refresh document list">Refresh</button></div>
     <p id="file-status" role="status" aria-live="polite"></p>
     <p id="file-error" role="alert" hidden></p>
     <ul id="file-list" aria-label="Uploaded files"></ul>
-    <p class="collector-note">Chat searches your indexed documents and explains what it finds. Expand the source text below an answer to check it, or click a filename to download the original. Scanned PDFs require OCR first.</p>
+    <button id="index-files" class="secondary index-button" type="button">Index documents</button>
+    <p class="collector-note">Questions that match indexed documents are answered from them. Click a PDF's name to preview it (other files download), or use × to remove a file. Scanned PDFs need OCR before upload.</p>
   </aside>
   </main>
+  <dialog id="preview-dialog" class="preview-dialog" aria-labelledby="preview-title">
+    <header>
+      <h2 id="preview-title"></h2>
+      <div class="preview-actions">
+        <a id="preview-download" class="preview-download">Download</a>
+        <button id="preview-close" class="secondary" type="button">Close</button>
+      </div>
+    </header>
+    <iframe id="preview-frame" title="PDF preview"></iframe>
+  </dialog>
 </body>
 </html>

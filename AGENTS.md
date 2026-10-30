@@ -11,7 +11,7 @@ practical changes and quick verification over unnecessary tooling or refactoring
 ## Current application
 
 This is an implemented local Flask application with plain HTML/CSS/JavaScript and
-document-based RAG with generated explanations. Do not treat the workspace as an empty scaffold.
+general chat plus document-based RAG with generated explanations. Do not treat the workspace as an empty scaffold.
 
 - `src/app.py`: Flask routes, upload validation, error handling and local startup.
 - `app.py`: the single launcher importing `src.app.main`; start with
@@ -22,11 +22,11 @@ document-based RAG with generated explanations. Do not treat the workspace as an
   generated explanations with server-resolved citations.
 - `src/diagnose.py`: read-only upload/index audits and optional live retrieval/evidence probes.
   Run with `.\.venv\Scripts\python.exe -B -m src.diagnose`.
-- `src/templates/index.html`: Chat and Filemanager interface.
+- `src/templates/index.html`: side-by-side chat and document manager interface.
 - `src/static/chat.js`: chat requests, history and source download links.
 - `src/static/files.js`: uploads, readiness status and manual indexing.
-- `src/static/views.js`: clickable view switching; Chat opens by default and
-  Filemanager stays hidden until selected. Switching preserves browser state.
+- `src/static/views.js`: legacy view-switching asset; the active interface keeps
+  chat and document management side by side.
 - `src/static/style.css`: responsive layout and view visibility.
 - `tests/test_app.py`, `tests/test_files.py`, `tests/test_rag.py`: unittest coverage.
 - `requirements.txt`: Flask, pypdf and python-docx dependency ranges.
@@ -38,10 +38,10 @@ document-based RAG with generated explanations. Do not treat the workspace as an
 ## Runtime and commands
 
 Python 3.10+ is required. Ollama serves locally at `http://localhost:11434`.
-Use `gemma3:1b` for answers and **`nomic-embed-text:latest` for embeddings**.
-The user explicitly requested nomic-embed-text; preserve that choice unless asked
-to change it. Models are managed by the existing Ollama installation; do not
-silently replace models or relocate its storage.
+Use `qwen3:1.7b` for answers and **`nomic-embed-text:latest` for embeddings**.
+The user explicitly requested these models; preserve that choice unless asked to
+change it. Models are managed by the existing Ollama installation; do not relocate
+its storage.
 
 Run from the repository root in PowerShell:
 
@@ -60,7 +60,7 @@ $env:TMP = $env:TEMP
 
 # Pull only when a required model is absent.
 ollama list
-ollama pull gemma3:1b
+ollama pull qwen3:1.7b
 ollama pull nomic-embed-text
 
 # Keep Ollama running, then start the application.
@@ -70,7 +70,8 @@ ollama pull nomic-embed-text
 .\.venv\Scripts\python.exe -B -m unittest discover -s tests -v
 ```
 
-Open only `http://127.0.0.1:5000`. Port 5000 is fixed; do not add alternate ports
+Open only `http://127.0.0.1:5050`. Port 5050 is fixed (macOS AirPlay Receiver
+occupies 5000); do not add alternate ports
 or additional launchers. Stop this project's previous server before restarting.
 Flask binds to localhost, with debug and automatic
 reload disabled. Restart this project's server after Python changes; reload the
@@ -98,28 +99,43 @@ the JavaScript files without installing frontend packages.
 - Store original filenames, SHA-256 fingerprints, model tags, passages, locations
   and vectors in SQLite under `uploads/`. Publish an index entry only after all
   passages have been embedded. Database connections must close explicitly.
+- Hash each upload with SHA-256 and save it beside the file as `<file id>.sha256`.
+  An upload matching an existing document's hash does nothing, even under another
+  name. Documents missing a hash get one during the next upload check. Deleting a
+  document deletes its hash; failed uploads leave none.
 - Uploads index synchronously; failed uploads are removed. Older files can be
   indexed with **Index documents**. Supported unindexed or changed files block
   chat with an indexing error; deleted files are excluded from retrieval.
 - Retrieve up to eight passages with hybrid cosine/normalized keyword rankings,
   reserving four candidates per ranking and ordering by reciprocal rank fusion.
-  No hard cosine cutoff; ranking is not calibrated confidence. Search scans
-  vectors in Python and is intended for small local collections.
-- Gemma now writes plain-language answers and source IDs, using retrieved passages
-  as untrusted reference material. It may summarize, explain, handle spelling
+  Search scans vectors in Python and is intended for small local collections.
+- Route each question after retrieval: use RAG when the best cosine is at least
+  `MIN_DOCUMENT_COSINE` (0.65, calibrated on a small sample for nomic-embed-text), the
+  question refers to the documents, or it matches `_USER_CONTEXT` ("the final project",
+  "the instructor"); otherwise answer generally with conversation history and no sources.
+  Do not route with the model: probes of the evidence selector and yes/no prompts
+  misrouted too many questions. The `mode` response field reports the route.
+- Qwen first selects passages likely to answer the question, then writes
+  plain-language answers using them as untrusted reference material. It may summarize,
+  explain, handle spelling
   mistakes and answer the available part of a question while stating what is missing.
   The user explicitly requested this simpler, less restrictive architecture.
   Do not restore the old exact-quote selector, all-keyword gate or literal fallback.
 - `src/documents.py` handles extraction/chunking; `src/ollama_client.py` handles
   local calls/embeddings; `src/rag.py` handles indexing/retrieval;
   `src/answering.py` handles generated answers. Existing indexes stay compatible.
-- Use temperature zero, an 8,192-token context and a 384-token output limit.
-  Each Ollama call has a 120-second timeout. Validate JSON shape and source IDs;
+- Use temperature zero, a 16,384-token context and a 2,048-token output limit for
+  both evidence selection and answer generation. Ollama calls wait without a
+  fixed timeout. Validate JSON shape and resolve answer citations from passage overlap;
   malformed output is an operational error, never a not-found answer.
 - Resolve file IDs, locations and source text on the server. The source `quote`
   field now contains the retrieved passage, not a model-selected quotation.
-- An empty library explains how to upload. Unsupported topics can receive an
-  explanation with no citations; no exact not-found wording is required.
+- An empty library gets a general answer. Document-routed topics the passages do not
+  cover can receive an explanation with no citations; no exact not-found wording is required.
+- Questions about the app's model identity use the configured model name directly.
+  Questions about what is uploaded are answered from the real file list (`mode: library`).
+  If evidence selection returns no passages, answer with `NOT_FOUND`; do not fall
+  back to the nearest unrelated passage.
 - Generated prose is not quote-validated. Valid citations do not prove that every
   claim is supported; the small model can invent, misunderstand or omit facts.
   Keep source excerpts inspectable and do not claim hallucination prevention.
@@ -135,18 +151,22 @@ the JavaScript files without installing frontend packages.
 - `GET /`: application interface.
 - `GET /api/files`: `{files: [{id, name, size, indexed}]}`.
 - `POST /api/files`: multipart `file`; returns `{file: ...}` with HTTP 201 after
-  successful extraction and indexing.
+  successful extraction and indexing, or HTTP 200 with the existing document and
+  `duplicate: true` when the content hash matches.
 - `GET /api/files/<file_id>`: original document as an attachment.
+- `GET /api/files/<file_id>/preview`: PDF served inline for the preview modal; other
+  file types return 404.
+- `DELETE /api/files/<file_id>`: removes the original document and its SQLite index entry.
 - `POST /api/files/index`: reindex supported files; returns per-file `results`.
   Inspect each result's `indexed` and optional `error`, even when HTTP is 200.
 - `POST /api/chat`: nonempty `messages` array with user/assistant text roles,
-  ending with a user message. Returns `message` and `sources` containing file ID,
-  filename, location and source passage.
+  ending with a user message. Returns `message`, `mode` (`documents`, `general` or `library`)
+  and `sources` containing file ID, filename, location and source passage.
 
-History lives only in browser memory. Retrieval uses the latest user message,
-not earlier turns; follow-up questions must restate their topic. All indexed
+History lives only in browser memory. General answers use it; retrieval uses the
+latest user message only, so document follow-ups must restate their topic. All indexed
 files are shared within this local workspace; no authentication, user isolation,
-streaming, OCR, deletion UI or persistent server-side chat history exists.
+streaming, OCR or persistent server-side chat history exists.
 
 ## Style and verification
 

@@ -59,7 +59,7 @@ def audit(folder):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--question", help="Run a live query using the existing index; does not reindex documents.")
-    parser.add_argument("--answer", action="store_true", help="Also generate a Gemma answer (requires --question).")
+    parser.add_argument("--answer", action="store_true", help="Also generate a Qwen answer (requires --question).")
     args = parser.parse_args()
     if args.answer and not args.question:
         parser.error("--answer requires --question")
@@ -68,12 +68,12 @@ def main():
     report = {"documents": audit(folder)}
     if args.question:
         if not (folder / "knowledge.sqlite3").exists():
-            parser.error("No index exists. Index documents in Filemanager first.")
+            parser.error("No index exists. Index documents in the Documents panel first.")
         sources = KnowledgeBase(folder).retrieve(args.question)
         report["retrieval"] = [{**source, "missing_question_terms": sorted(terms(args.question) - terms(source["text"]))}
                                for source in sources]
         if args.answer:
-            report["answer"], report["citations"] = answer(args.question, sources, "gemma3:1b")
+            report["answer"], report["citations"] = answer(args.question, sources, "qwen3:1.7b")
     print(json.dumps(report, ensure_ascii=True, indent=2))
 
 

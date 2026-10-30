@@ -8,7 +8,9 @@ def ollama(endpoint, payload):
     req = Request("http://localhost:11434/api/" + endpoint,
                   data=json.dumps(payload).encode(),
                   headers={"Content-Type": "application/json"}, method="POST")
-    with urlopen(req, timeout=120) as response:
+    # Local model calls can take a long time on modest hardware. Wait until
+    # Ollama responds instead of failing at an arbitrary time limit.
+    with urlopen(req, timeout=None) as response:
         result = json.load(response)
     if not isinstance(result, dict) or result.get("error"):
         raise ValueError("Ollama returned an invalid response.")

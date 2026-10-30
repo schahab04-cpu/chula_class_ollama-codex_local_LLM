@@ -1,4 +1,4 @@
-"""Single project launcher; open http://127.0.0.1:5000."""
+"""Single project launcher; open http://127.0.0.1:5050."""
 
 from src.app import app, main
 
