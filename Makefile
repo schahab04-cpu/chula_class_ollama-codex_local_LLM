@@ -6,7 +6,7 @@ else
 PYTHON ?= python3
 endif
 
-.PHONY: help setup install run test diagnose models
+.PHONY: help setup install run test diagnose models voice-install voice-models
 
 help:
 	@$(PYTHON) scripts/tasks.py help
@@ -28,3 +28,9 @@ diagnose:
 
 models:
 	@$(PYTHON) scripts/tasks.py models
+
+voice-install:
+	@$(PYTHON) scripts/tasks.py voice-install
+
+voice-models:
+	@$(PYTHON) scripts/tasks.py voice-models

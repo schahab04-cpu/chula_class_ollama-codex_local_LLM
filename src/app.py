@@ -1,30 +1,41 @@
 """Local Flask interface for general and document chat through Ollama."""
 
+import base64
 import hashlib
+import json
+import mimetypes
 import socket
 import logging
 import argparse
 import tempfile
-from contextlib import suppress
+from contextlib import closing, suppress
 import sqlite3
 from http.client import HTTPException
 from pathlib import Path
 from uuid import uuid4
 from urllib.error import URLError
 
-from flask import Flask, jsonify, render_template, request, send_from_directory
+from flask import Flask, Response, jsonify, render_template, request, send_from_directory, stream_with_context
 from werkzeug.utils import secure_filename
 try:
     from .rag import KnowledgeBase, DocumentError, SUPPORTED, answer
-    from .answering import general_answer, identity_response, is_document_question, library_response
+    from .answering import (general_answer, identity_response, is_document_question, library_response,
+                            voice_reply, warm_up_voice_model)
+    from . import speech
 except ImportError:
     from rag import KnowledgeBase, DocumentError, SUPPORTED, answer
-    from answering import general_answer, identity_response, is_document_question, library_response
+    from answering import (general_answer, identity_response, is_document_question, library_response,
+                           voice_reply, warm_up_voice_model)
+    import speech
 
 
 def knowledge_base():
     return KnowledgeBase(app.config["UPLOAD_FOLDER"])
 
+
+# Browsers refuse the voice-activity modules unless they have these types.
+mimetypes.add_type("text/javascript", ".mjs")
+mimetypes.add_type("application/wasm", ".wasm")
 
 # Keep multipart upload scratch files within this workspace too.
 TEMP_FOLDER = Path(__file__).resolve().parent.parent / ".tmp"
@@ -35,6 +46,8 @@ app = Flask(__name__)
 app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024
 app.config["UPLOAD_FOLDER"] = Path(__file__).resolve().parent.parent / "uploads"
 UPLOAD_LIMIT = 20 * 1024 * 1024
+# About two minutes of 16 kHz, 16-bit mono speech.
+VOICE_LIMIT = 4 * 1024 * 1024
 HASH_SUFFIX = ".sha256"
 
 
@@ -168,15 +181,15 @@ def index():
 def too_large(error):
     if request.endpoint == "upload_file":
         return jsonify(error="Upload is too large. Choose a file smaller than 20 MiB."), 413
+    if request.endpoint == "transcribe_voice":
+        return jsonify(error="That was too long to transcribe. Please say it in shorter parts."), 413
     return jsonify(error="Conversation is too large. Start a new chat."), 413
 
 
-@app.post("/api/chat")
-def chat():
-    payload = request.get_json(silent=True)
-    messages = payload.get("messages") if isinstance(payload, dict) else None
+def messages_error(messages):
+    """Return why a chat history is invalid, or None when it is usable."""
     if not isinstance(messages, list) or not messages:
-        return jsonify(error="Provide a non-empty messages array."), 400
+        return "Provide a non-empty messages array."
     for message in messages:
         if (
             not isinstance(message, dict)
@@ -184,13 +197,23 @@ def chat():
             or not isinstance(message.get("content"), str)
             or not message["content"].strip()
         ):
-            return jsonify(error="Each message needs a user or assistant role and text content."), 400
+            return "Each message needs a user or assistant role and text content."
     if messages[-1]["role"] != "user":
-        return jsonify(error="The last message must be from the user."), 400
+        return "The last message must be from the user."
+    if len(messages[-1]["content"].strip()) > 4000:
+        return "Keep questions under 4000 characters."
+    return None
+
+
+@app.post("/api/chat")
+def chat():
+    payload = request.get_json(silent=True)
+    messages = payload.get("messages") if isinstance(payload, dict) else None
+    invalid = messages_error(messages)
+    if invalid:
+        return jsonify(error=invalid), 400
 
     question = messages[-1]["content"].strip()
-    if len(question) > 4000:
-        return jsonify(error="Keep questions under 4000 characters."), 400
     identity = identity_response(question, MODEL)
     if identity:
         return jsonify(message={"role": "assistant", "content": identity}, sources=[], mode="general")
@@ -234,6 +257,72 @@ def index_files():
             detail = str(error) if isinstance(error, DocumentError) else "Indexing failed. Check Ollama and the embedding model."
             results.append({"name": path.name.split("--", 1)[-1], "indexed": False, "error": detail})
     return jsonify(results=results)
+
+
+@app.get("/api/voice/status")
+def voice_status():
+    available = speech.available()
+    return jsonify(available=available, reason=None if available else speech.UNAVAILABLE)
+
+
+@app.post("/api/voice/warmup")
+def warm_up_voice():
+    try:
+        speech.warm_up()
+        warm_up_voice_model(MODEL)
+        return "", 204
+    except speech.SpeechError as error:
+        return jsonify(error=str(error)), 503
+    except (URLError, ConnectionError, HTTPException, TimeoutError, ValueError):
+        return jsonify(error=f"Cannot load {MODEL}. Check that Ollama is running."), 503
+
+
+@app.post("/api/voice/transcribe")
+def transcribe_voice():
+    request.max_content_length = VOICE_LIMIT
+    try:
+        return jsonify(text=speech.transcribe(request.get_data()))
+    except ValueError as error:
+        return jsonify(error=str(error)), 400
+    except speech.SpeechError as error:
+        return jsonify(error=str(error)), 503
+
+
+def voice_event(**fields):
+    return json.dumps(fields) + "\n"
+
+
+def voice_events(messages):
+    """Yield one event per spoken sentence; errors are events because HTTP 200 is already sent."""
+    spoken = False
+    try:
+        with closing(voice_reply(messages, MODEL)) as chunks:
+            for sentence in speech.split_sentences(chunks):
+                text = speech.clean_for_speech(sentence)
+                if text:
+                    audio = base64.b64encode(speech.synthesize(text)).decode("ascii")
+                    spoken = True
+                    yield voice_event(type="sentence", text=text, audio=audio)
+        if not spoken:
+            raise ValueError("Ollama returned an empty answer.")
+        yield voice_event(type="done")
+    except speech.SpeechError as error:
+        yield voice_event(type="error", message=str(error))
+    except (TimeoutError, socket.timeout, URLError, ConnectionError, HTTPException):
+        yield voice_event(type="error", message=f"Cannot reach {MODEL}. Check that Ollama is running.")
+    except ValueError as error:
+        app.logger.warning("Voice answer failed: %s", error)
+        yield voice_event(type="error", message="Ollama returned an invalid response. Please try again.")
+
+
+@app.post("/api/voice/reply")
+def voice_reply_stream():
+    payload = request.get_json(silent=True)
+    messages = payload.get("messages") if isinstance(payload, dict) else None
+    invalid = messages_error(messages)
+    if invalid:
+        return jsonify(error=invalid), 400
+    return Response(stream_with_context(voice_events(messages)), mimetype="application/x-ndjson")
 
 
 def main():

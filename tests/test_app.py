@@ -18,7 +18,7 @@ class ChatTests(unittest.TestCase):
         run.assert_called_once_with(host="127.0.0.1", port=5050, debug=False)
 
     def test_page_and_assets(self):
-        for path in ("/", "/static/chat.js", "/static/files.js", "/static/views.js", "/static/style.css"):
+        for path in ("/", "/static/chat.js", "/static/files.js", "/static/views.js", "/static/wisp.js", "/static/voice.js", "/static/style.css"):
             with self.client.get(path) as response:
                 self.assertEqual(response.status_code, 200)
         html = self.client.get("/").get_data(as_text=True)
@@ -31,8 +31,10 @@ class ChatTests(unittest.TestCase):
         static = Path(__file__).resolve().parent.parent / "src" / "static"
         declared = [set(re.findall(r"^(?:let|const|(?:async )?function) +(\w+)",
                                    (static / name).read_text(encoding="utf-8"), re.M))
-                    for name in ("chat.js", "files.js")]
-        self.assertEqual(declared[0] & declared[1], set())
+                    for name in ("chat.js", "files.js", "voice.js", "wisp.js")]
+        for index, names in enumerate(declared):
+            for other in declared[index + 1:]:
+                self.assertEqual(names & other, set())
 
     @patch("src.app.knowledge_base")
     @patch("src.app.answer")

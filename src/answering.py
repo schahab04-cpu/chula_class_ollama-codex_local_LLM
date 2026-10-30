@@ -2,8 +2,9 @@
 import json
 import logging
 import re
+from contextlib import closing
 
-from .ollama_client import ollama
+from .ollama_client import ollama, ollama_stream
 
 NOT_FOUND = "I couldn't find that information in the uploaded documents."
 # Calibrated on nomic-embed-text: general questions scored up to 0.63 against the
@@ -157,6 +158,38 @@ def general_answer(messages, model):
     except (KeyError, TypeError) as error:
         raise ValueError("Ollama returned an invalid answer. Please retry.") from error
     return text.strip()
+
+
+VOICE_PROMPT = ("You are speaking aloud in a live voice conversation. Reply in one to three short "
+                "spoken sentences. Never use lists, markdown, code or emoji. Be calm, precise and warm, "
+                "with a light dry wit. Ask a short follow-up question when it helps.")
+VOICE_KEEP_ALIVE = "30m"
+
+
+def warm_up_voice_model(model):
+    """Load the model with the context size replies use, so the first turn does not wait."""
+    ollama("generate", {"model": model, "keep_alive": VOICE_KEEP_ALIVE, "options": {"num_ctx": 16384}})
+
+
+def voice_reply(messages, model):
+    """Stream a short spoken reply; voice mode does not use the documents."""
+    identity = identity_response(messages[-1]["content"], model)
+    if identity:
+        yield identity
+        return
+    history = [{"role": message["role"], "content": message["content"]} for message in messages]
+    with closing(ollama_stream("chat", {
+        "model": model, "stream": True, "think": False, "keep_alive": VOICE_KEEP_ALIVE,
+        "options": {"temperature": 0.7, "num_ctx": 16384, "num_predict": 256},
+        "messages": [{"role": "system", "content": VOICE_PROMPT}, *history],
+    })) as stream:
+        for part in stream:
+            message = part.get("message")
+            text = message.get("content") if isinstance(message, dict) else None
+            if not isinstance(text, str):
+                raise ValueError("Ollama returned an invalid answer. Please retry.")
+            if text:
+                yield text
 
 
 def answer(question, sources, model):

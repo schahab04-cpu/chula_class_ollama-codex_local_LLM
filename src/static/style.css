@@ -79,4 +79,21 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #89aeff; outli
 .preview-download:focus-visible { outline: 3px solid #89aeff; outline-offset: 2px; }
 #preview-frame { flex: 1; width: 100%; min-height: 0; border: 0; }
 
+.chat-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.voice-view { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; overflow: hidden; color: #dfe9f5; background: radial-gradient(120% 90% at 50% 46%, #0e1a2c 0%, #070b14 60%, #04060c 100%); }
+.voice-view::backdrop { background: #04060c; }
+#voice-wisp { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.voice-panel { position: absolute; left: 50%; bottom: 24px; width: min(720px, 92vw); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
+.voice-panel p { margin: 0; overflow-wrap: anywhere; }
+#voice-status { font-size: .8rem; letter-spacing: .12em; text-transform: uppercase; color: #8ea3bb; }
+.voice-heard { font-size: .9rem; color: #8ea3bb; }
+.voice-caption { min-height: 1.5em; font-size: 1.1rem; line-height: 1.5; }
+.voice-error { padding: 8px 12px; border-radius: 8px; color: #ffd9d3; background: rgba(122, 31, 46, .55); font-size: .9rem; }
+.voice-controls { display: flex; gap: 8px; margin-top: 10px; }
+.voice-button { padding: 10px 18px; border: 1px solid rgba(223, 233, 245, .28); border-radius: 8px; background: rgba(223, 233, 245, .08); color: #dfe9f5; font: inherit; cursor: pointer; }
+.voice-button:hover:not(:disabled) { background: rgba(223, 233, 245, .18); }
+.voice-button:disabled { opacity: .4; cursor: default; }
+.voice-button:focus-visible { outline: 3px solid #89aeff; outline-offset: 2px; }
+.voice-button kbd { margin-left: 6px; font: inherit; font-size: .75rem; opacity: .7; }
+
 [hidden] { display: none !important; }

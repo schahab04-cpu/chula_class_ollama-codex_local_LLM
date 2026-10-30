@@ -52,6 +52,7 @@ secrets.yml
 /ollama-models/
 /models/blobs/
 /models/manifests/
+/.models/
 *.gguf
 *.ggml
 *.safetensors

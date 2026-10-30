@@ -27,11 +27,18 @@ general chat plus document-based RAG with generated explanations. Do not treat t
 - `src/static/files.js`: uploads, readiness status and manual indexing.
 - `src/static/views.js`: legacy view-switching asset; the active interface keeps
   chat and document management side by side.
+- `src/static/voice.js`: voice conversation state machine; shares `messages` and
+  `appendMessage` with `chat.js`.
+- `src/static/wisp.js`: canvas animation for the voice view; exposes only `wisp`.
+- `src/static/vendor/vad/`: pinned Silero VAD and ONNX runtime files; do not edit.
+- `src/speech.py`: Whisper and Kokoro on one worker thread, sentence splitting, markup cleanup.
 - `src/static/style.css`: responsive layout and view visibility.
 - `tests/test_app.py`, `tests/test_files.py`, `tests/test_rag.py`: unittest coverage.
 - `requirements.txt`: Flask, pypdf and python-docx dependency ranges.
 - `uploads/`: original documents and `knowledge.sqlite3` (ignored by Git).
-- `.venv/`: project Python environment (ignored).
+- `.venv/`: project Python environment (ignored). On macOS use `.venv/bin/python`.
+- `.models/`: voice mode's speech models (ignored).
+- `requirements-voice.txt`: macOS-only speech packages, separate from `requirements.txt`.
 - `.tmp/`: upload scratch files, local installation scratch files and server logs
   when launched with output redirection (ignored).
 
@@ -146,6 +153,19 @@ the JavaScript files without installing frontend packages.
   text through safe DOM text APIs, never unescaped HTML.
 - Network, model and index failures are operational errors, not evidence absence.
 
+## Voice mode
+
+- macOS only and optional: `make voice-install` and `make voice-models`. Imports stay lazy, so
+  the app and tests run without MLX; `/api/voice/status` hides the button when unavailable.
+- Silero (browser), `whisper-large-v3-turbo` (MLX), Qwen, then Kokoro (`speech.VOICE`). Fully
+  local after setup; models load from `.models/` with Hugging Face offline. Audio is never saved.
+- All MLX work must run on the single `speech.py` worker thread: MLX streams are per-thread.
+- Deliberate exceptions to the text chat rules: voice streams by sentence, uses temperature
+  0.7 and a 256-token limit, and bypasses document routing and sources. `num_ctx` stays 16,384
+  so Ollama does not reload the model when switching between text and voice.
+- The mic is off while replying (no barge-in). End of speech is a 1 s pause. Skip keeps only
+  the sentences already heard in history; if none were heard the user turn is dropped.
+
 ## API contracts
 
 - `GET /`: application interface.
@@ -163,10 +183,15 @@ the JavaScript files without installing frontend packages.
   ending with a user message. Returns `message`, `mode` (`documents`, `general` or `library`)
   and `sources` containing file ID, filename, location and source passage.
 
+- `GET /api/voice/status`: `{available, reason}`. `POST /api/voice/warmup`: 204 when ready.
+- `POST /api/voice/transcribe`: 16 kHz, 16-bit mono WAV, 4 MiB limit; returns `{text}`, empty for noise.
+- `POST /api/voice/reply`: `{messages}`; NDJSON events `sentence` (`text`, base64 WAV `audio`),
+  `done` or `error` (`message`). Failures are events because HTTP 200 is already sent.
+
 History lives only in browser memory. General answers use it; retrieval uses the
 latest user message only, so document follow-ups must restate their topic. All indexed
 files are shared within this local workspace; no authentication, user isolation,
-streaming, OCR or persistent server-side chat history exists.
+text chat streaming, OCR or persistent server-side chat history exists.
 
 ## Style and verification
 

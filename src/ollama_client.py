@@ -4,10 +4,14 @@ import math
 from urllib.request import Request, urlopen
 
 
+def _request(endpoint, payload):
+    return Request("http://localhost:11434/api/" + endpoint,
+                   data=json.dumps(payload).encode(),
+                   headers={"Content-Type": "application/json"}, method="POST")
+
+
 def ollama(endpoint, payload):
-    req = Request("http://localhost:11434/api/" + endpoint,
-                  data=json.dumps(payload).encode(),
-                  headers={"Content-Type": "application/json"}, method="POST")
+    req = _request(endpoint, payload)
     # Local model calls can take a long time on modest hardware. Wait until
     # Ollama responds instead of failing at an arbitrary time limit.
     with urlopen(req, timeout=None) as response:
@@ -15,6 +19,16 @@ def ollama(endpoint, payload):
     if not isinstance(result, dict) or result.get("error"):
         raise ValueError("Ollama returned an invalid response.")
     return result
+
+
+def ollama_stream(endpoint, payload):
+    """Yield each streamed object; closing this generator makes Ollama stop generating."""
+    with urlopen(_request(endpoint, payload), timeout=None) as response:
+        for line in response:
+            result = json.loads(line)
+            if not isinstance(result, dict) or result.get("error"):
+                raise ValueError("Ollama returned an invalid response.")
+            yield result
 
 
 def normalized(vector):

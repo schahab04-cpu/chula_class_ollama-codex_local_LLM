@@ -7,13 +7,20 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <script src="{{ url_for('static', filename='chat.js') }}" defer></script>
   <script src="{{ url_for('static', filename='files.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='vendor/vad/ort.wasm.min.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='vendor/vad/bundle.min.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='wisp.js') }}" defer></script>
+  <script src="{{ url_for('static', filename='voice.js') }}" defer></script>
 </head>
 <body>
   <main class="workspace">
   <section id="chat-view" class="chat" aria-label="Chat">
     <header>
       <div><h1>Local chat</h1><p>Local Ollama | General answers, or answers from your files with sources</p></div>
-      <button id="clear" type="button" class="secondary">New chat</button>
+      <div class="chat-actions">
+        <button id="voice-open" type="button" hidden>Voice</button>
+        <button id="clear" type="button" class="secondary">New chat</button>
+      </div>
     </header>
     <section id="conversation" role="log" aria-label="Conversation" aria-live="polite">
       <p id="empty">Ask anything, or upload documents and ask about their contents.</p>
@@ -58,6 +65,19 @@
       </div>
     </header>
     <iframe id="preview-frame" title="PDF preview"></iframe>
+  </dialog>
+  <dialog id="voice-view" class="voice-view" aria-label="Voice conversation" data-state="loading">
+    <canvas id="voice-wisp" aria-hidden="true"></canvas>
+    <div class="voice-panel">
+      <p id="voice-status" role="status" aria-live="polite"></p>
+      <p id="voice-heard" class="voice-heard"></p>
+      <p id="voice-caption" class="voice-caption"></p>
+      <p id="voice-error" class="voice-error" role="alert" hidden></p>
+      <div class="voice-controls">
+        <button id="voice-skip" type="button" class="voice-button" disabled>Skip <kbd>Space</kbd></button>
+        <button id="voice-end" type="button" class="voice-button">End</button>
+      </div>
+    </div>
   </dialog>
 </body>
 </html>

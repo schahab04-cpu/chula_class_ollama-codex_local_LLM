@@ -7,7 +7,9 @@ plain-language answers with file/page references. Runs locally with Flask, **qwe
 
 The Makefile provides the same project commands on macOS and Windows. On
 Windows, install GNU Make (for example, through Git Bash or Chocolatey) and
-ensure `py -3` is available. On macOS, use the system `python3` and Make.
+ensure `py -3` is available. On macOS, use the system `python3` and Make; if the system Python is older than
+3.10, create the environment with a newer one, for example
+`/opt/homebrew/bin/python3.12 -m venv .venv`.
 Run commands from the repository root:
 
 ```sh
@@ -17,6 +19,8 @@ make models    # pull both models using the existing Ollama installation
 make run       # start the app at http://127.0.0.1:5050
 make test      # run the unittest suite
 make diagnose  # run read-only diagnostics
+make voice-install  # macOS only: install voice mode's speech packages
+make voice-models   # macOS only: download its speech models to .models/ (about 1.9 GB)
 ```
 
 Start Ollama before `make run`. `make models` is optional when both models are
@@ -75,6 +79,20 @@ literal-match fallback have been removed. Existing files/indexes stay compatible
 you do not need to upload or reindex them to use the new answering behavior.
 Use **Index documents** for changed/unindexed files and inspect per-file failures.
 
+## Voice mode (macOS only)
+
+After `make voice-install` and `make voice-models`, restart the app and press **Voice**
+to talk hands-free. Chrome will ask for microphone access the first time. It listens
+until you pause for about a second, then replies aloud. The microphone is off while
+it speaks: press **Skip** or the spacebar to cut a reply short, and **End** or Esc to
+stop. The conversation stays in the chat when you close the view.
+
+Voice mode is general chat only and never searches your documents. Replies are short,
+and the model remembers only what you actually heard. Speech stays on this Mac:
+Silero detects speech in the browser, `whisper-large-v3-turbo` transcribes it and
+Kokoro speaks, all from local files. Audio is not written to disk. On other systems,
+or before setup, the **Voice** button stays hidden and the rest of the app is unaffected.
+
 ## Structure
 
 - `src/documents.py`: PDF pages, DOCX body paragraphs/tables, UTF-8 TXT/MD extraction.
@@ -92,8 +110,12 @@ Use **Index documents** for changed/unindexed files and inspect per-file failure
   then writes an explanation from the selected passages. The server chooses citations
   by matching answer terms to those passages; this reduces mismatched references but
   does not prove every claim is supported.
+- `src/speech.py`: voice mode's local transcription and synthesis on one worker thread,
+  sentence splitting and markup cleanup. Models load from `.models/`.
 - `src/app.py`: Flask routes and localhost startup; root `app.py` launches it.
-- `src/templates/`, `src/static/`: plain HTML/CSS/JavaScript interface.
+- `src/templates/`, `src/static/`: plain HTML/CSS/JavaScript interface. `voice.js` runs
+  the voice conversation, `wisp.js` draws its animated wisp, and `vendor/vad/` holds the
+  pinned speech detection files.
 - `src/diagnose.py`: read-only extraction/index audits and optional live queries.
 
 ## Limits
@@ -117,7 +139,8 @@ per file, 50 MiB expanded DOCX, 20 MiB upload requests including multipart overh
 All indexed files are shared locally. History is browser memory only and clears on
 reload. General answers use the conversation history, but each document search uses
 only the latest question: restate the topic in follow-ups.
-No authentication, OCR, streaming or persistent chat history.
+No authentication, OCR or persistent chat history. Text chat does not stream; voice
+replies stream by sentence.
 Keep the server on localhost. Documents are sent only to local Ollama on port 11434.
 
 ## Troubleshooting and verification
@@ -159,10 +182,17 @@ If Node is installed, `node --check src/static/chat.js` checks syntax without pa
   name, location and quote (the original passage, not the generated answer). Latest question limit: 4,000
   characters; non-upload request limit: 1 MiB.
 
+- `GET /api/voice/status`: `{available, reason}`.
+- `POST /api/voice/warmup`: load the speech models and Qwen; HTTP 204 when ready.
+- `POST /api/voice/transcribe`: 16 kHz, 16-bit mono WAV body, up to 4 MiB (about two
+  minutes); returns `{text}`, empty when the audio held only noise.
+- `POST /api/voice/reply`: `{messages}` as for chat; streams NDJSON events: `sentence`
+  with `text` and base64 WAV `audio`, then `done`, or `error` with `message`.
+
 Failed uploads are removed. Changed/unindexed supported files block chat; deleted
 files are excluded. Reindex after replacing the embedding model behind its tag.
 
 Each document's SHA-256 is saved beside it in `uploads/` as `<file id>.sha256`.
 
-Uploads, SQLite, embeddings, model weights, `.venv`, `.tmp`, logs and secrets are
+Uploads, SQLite, embeddings, model weights, `.models`, `.venv`, `.tmp`, logs and secrets are
 ignored by Git. See [GIT_GUIDE.md](GIT_GUIDE.md) and [AGENTS.md](AGENTS.md).

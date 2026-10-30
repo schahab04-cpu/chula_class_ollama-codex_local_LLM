@@ -12,6 +12,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = os.name == "nt"
 VENV_PYTHON = ROOT / ".venv" / ("Scripts/python.exe" if WINDOWS else "bin/python")
+VOICE_MODELS = (
+    ("mlx-community/whisper-large-v3-turbo", "whisper-large-v3-turbo"),
+    ("mlx-community/Kokoro-82M-bf16", "Kokoro-82M-bf16"),
+)
 
 
 def run(command: list[str]) -> None:
@@ -21,7 +25,7 @@ def run(command: list[str]) -> None:
 def main() -> None:
     task = sys.argv[1] if len(sys.argv) > 1 else "help"
     if task == "help":
-        print("Targets: setup install run test diagnose models")
+        print("Targets: setup install run test diagnose models voice-install voice-models")
     elif task == "setup":
         if not VENV_PYTHON.exists():
             venv.EnvBuilder(with_pip=True).create(ROOT / ".venv")
@@ -51,6 +55,29 @@ def main() -> None:
     elif task == "models":
         run(["ollama", "pull", "qwen3:1.7b"])
         run(["ollama", "pull", "nomic-embed-text"])
+    elif task == "voice-install":
+        require_voice_platform()
+        require_environment()
+        env = os.environ.copy()
+        env["TMPDIR"] = str(ROOT / ".tmp")
+        subprocess.run(
+            [str(VENV_PYTHON), "-m", "pip", "install", "--no-cache-dir", "-r", "requirements-voice.txt"],
+            cwd=ROOT,
+            env=env,
+            check=True,
+        )
+    elif task == "voice-models":
+        require_voice_platform()
+        require_environment()
+        env = os.environ.copy()
+        env["HF_HOME"] = str(ROOT / ".models" / "hf-cache")
+        for repo, folder in VOICE_MODELS:
+            subprocess.run(
+                [str(VENV_PYTHON.with_name("hf")), "download", repo, "--local-dir", str(ROOT / ".models" / folder)],
+                cwd=ROOT,
+                env=env,
+                check=True,
+            )
     else:
         raise SystemExit(f"Unknown target: {task}")
 
@@ -59,6 +86,11 @@ def create_environment() -> None:
     if not VENV_PYTHON.exists():
         venv.EnvBuilder(with_pip=True).create(ROOT / ".venv")
     (ROOT / ".tmp").mkdir(exist_ok=True)
+
+
+def require_voice_platform() -> None:
+    if sys.platform != "darwin":
+        raise SystemExit("Voice mode runs only on macOS.")
 
 
 def require_environment() -> None:
