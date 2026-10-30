@@ -44,13 +44,16 @@ def identity_response(question, model):
     return None
 
 
-_LIBRARY_ITEMS = r"(?:files?|documents?|docs|pdfs?)"
+_LIBRARY_ITEMS = r"(?:files?|documents?|docs|pdfs?|papers?)"
 _LIBRARY_QUESTION = re.compile(
-    rf"(?:(?:what|which)\s+{_LIBRARY_ITEMS}\s+(?:do\s+you\s+have(?:\s+access\s+to)?"
+    rf"(?:(?:what|which)(?:\s+are)?(?:\s+(?:my|the))?\s+{_LIBRARY_ITEMS}"
+    r"(?:\s+are)?\s+in\s+(?:my|the|your)\s+(?:\w+\s+)?(?:collection|library|folder|uploads)"
+    rf"|what\s+are\s+my\s+{_LIBRARY_ITEMS}"
+    rf"|(?:what|which)\s+{_LIBRARY_ITEMS}\s+(?:do\s+(?:you|i)\s+have(?:\s+access\s+to)?"
     r"|can\s+you\s+(?:see|read|access|use)|are\s+(?:there|uploaded|available)"
     r"|have\s+(?:been\s+uploaded|i\s+uploaded))"
     rf"|(?:list|show)(?:\s+me)?(?:\s+(?:my|the|all|your))*\s+{_LIBRARY_ITEMS}"
-    rf"|do\s+you\s+have(?:\s+access\s+to)?(?:\s+(?:any|my|the))*\s+{_LIBRARY_ITEMS})\s*[?.!]*", re.I)
+    rf"|do\s+(?:you|i)\s+have(?:\s+access\s+to)?(?:\s+(?:any|my|the))*\s+{_LIBRARY_ITEMS})\s*[?.!]*", re.I)
 
 
 def library_response(question, names):

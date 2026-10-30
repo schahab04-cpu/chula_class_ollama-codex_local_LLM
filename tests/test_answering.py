@@ -172,7 +172,10 @@ class LibraryResponseTests(unittest.TestCase):
     def test_lists_real_names_for_questions_about_the_library(self):
         for question in ("What files do you have access to?", "which documents do you have",
                          "What documents are uploaded?", "list my files", "Show me all the documents.",
-                         "Do you have access to my files?", "do you have any documents?"):
+                         "Do you have access to my files?", "do you have any documents?",
+                         "What are the papers in my document collection?", "what papers do i have?",
+                         "What papers are in my collection?", "what are my papers", "list my papers",
+                         "do I have any papers?", "Which documents are in the library?"):
             with self.subTest(question=question):
                 self.assertIn("notes.pdf", library_response(question, ["notes.pdf"]))
 
@@ -181,7 +184,9 @@ class LibraryResponseTests(unittest.TestCase):
 
     def test_questions_about_content_are_not_library_questions(self):
         for question in ("What documents discuss the GDPR?", "What files are needed for a visa?",
-                         "How do I list files in Python?", "What do my documents say about fines?"):
+                         "How do I list files in Python?", "What do my documents say about fines?",
+                         "What papers discuss data breaches?", "how long is the final paper?",
+                         "What are the papers about?"):
             with self.subTest(question=question):
                 self.assertIsNone(library_response(question, ["notes.pdf"]))
 
