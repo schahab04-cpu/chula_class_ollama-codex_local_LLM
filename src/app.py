@@ -20,13 +20,14 @@ from werkzeug.utils import secure_filename
 try:
     from .rag import KnowledgeBase, DocumentError, SUPPORTED, answer
     from .answering import (general_answer, identity_response, is_document_question, library_response,
-                            voice_reply, warm_up_voice_model)
-    from . import speech
+                            voice_reply, warm_up_voice_model, web_answer)
+    from . import speech, web_search
 except ImportError:
     from rag import KnowledgeBase, DocumentError, SUPPORTED, answer
     from answering import (general_answer, identity_response, is_document_question, library_response,
-                           voice_reply, warm_up_voice_model)
+                           voice_reply, warm_up_voice_model, web_answer)
     import speech
+    import web_search
 
 
 def knowledge_base():
@@ -224,6 +225,12 @@ def chat():
         if library:
             return jsonify(message={"role": "assistant", "content": library}, sources=[], mode="library")
         sources = knowledge_base().retrieve(question)
+        query = web_search.search_query(messages)
+        # Fact checks of document answers stay with the documents.
+        if query and not is_document_question(query, sources if query == question
+                                                else knowledge_base().retrieve(query)):
+            content, results = web_answer(messages, query, web_search.search(query), MODEL)
+            return jsonify(message={"role": "assistant", "content": content}, sources=results, mode="web")
         if not is_document_question(question, sources):
             content = general_answer(messages, MODEL)
             return jsonify(message={"role": "assistant", "content": content}, sources=[], mode="general")
@@ -231,6 +238,8 @@ def chat():
         return jsonify(message={"role": "assistant", "content": content}, sources=citations, mode="documents")
     except DocumentError as error:
         return jsonify(error=str(error)), 409
+    except web_search.SearchError as error:
+        return jsonify(error=str(error)), 503
     except (TimeoutError, socket.timeout):
         return jsonify(error="Ollama took too long. Please retry."), 504
     except (URLError, ConnectionError, HTTPException):
@@ -275,6 +284,16 @@ def warm_up_voice():
         return jsonify(error=str(error)), 503
     except (URLError, ConnectionError, HTTPException, TimeoutError, ValueError):
         return jsonify(error=f"Cannot load {MODEL}. Check that Ollama is running."), 503
+
+
+@app.get("/api/voice/fillers")
+def voice_fillers():
+    try:
+        rendered = speech.fillers()
+    except speech.SpeechError as error:
+        return jsonify(error=str(error)), 503
+    return jsonify(fillers=[{"text": text, "audio": base64.b64encode(audio).decode("ascii")}
+                            for text, audio in rendered])
 
 
 @app.post("/api/voice/transcribe")

@@ -136,6 +136,17 @@ class StatusTests(unittest.TestCase):
         warm_model.side_effect = URLError("down")
         self.assertEqual(self.client.post("/api/voice/warmup").status_code, 503)
 
+    @patch("src.speech.fillers", return_value=[("Hmm.", b"RIFF")])
+    def test_fillers_return_base64_audio(self, _):
+        data = self.client.get("/api/voice/fillers").get_json()
+        self.assertEqual(data, {"fillers": [{"text": "Hmm.", "audio": "UklGRg=="}]})
+
+    @patch("src.speech.fillers", side_effect=speech.SpeechError("Local speech processing failed."))
+    def test_filler_failures_are_operational_errors(self, _):
+        response = self.client.get("/api/voice/fillers")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.get_json(), {"error": "Local speech processing failed."})
+
     def test_vad_assets_have_module_and_wasm_types(self):
         for name, kind in (("ort-wasm-simd-threaded.mjs", "text/javascript"),
                            ("ort-wasm-simd-threaded.wasm", "application/wasm")):

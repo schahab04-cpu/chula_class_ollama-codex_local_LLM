@@ -34,7 +34,8 @@ general chat plus document-based RAG with generated explanations. Do not treat t
 - `src/speech.py`: Whisper and Kokoro on one worker thread, sentence splitting, markup cleanup.
 - `src/static/style.css`: responsive layout and view visibility.
 - `tests/test_app.py`, `tests/test_files.py`, `tests/test_rag.py`: unittest coverage.
-- `requirements.txt`: Flask, pypdf and python-docx dependency ranges.
+- `requirements.txt`: Flask, pypdf, python-docx and ddgs dependency ranges.
+- `src/web_search.py`: fact-check triggers, Wikipedia search with DuckDuckGo fallback.
 - `uploads/`: original documents and `knowledge.sqlite3` (ignored by Git).
 - `.venv/`: project Python environment (ignored). On macOS use `.venv/bin/python`.
 - `.models/`: voice mode's speech models (ignored).
@@ -122,6 +123,13 @@ the JavaScript files without installing frontend packages.
   "the instructor"); otherwise answer generally with conversation history and no sources.
   Do not route with the model: probes of the evidence selector and yes/no prompts
   misrouted too many questions. The `mode` response field reports the route.
+- Fact checks (`mode: web`): a whole-message doubt ("is that right?", "that's wrong") or a
+  near-repeat of an earlier user question (content-word Jaccard >= 0.6) searches online for
+  that question, unless it routes to the documents. Wikipedia goes first, using keywords and
+  keeping only articles with an on-topic title. DuckDuckGo (`ddgs`) is the fallback. Only the
+  question leaves the machine. Both services failing is an operational error (503); no results
+  gives a plain "found nothing" answer without a model call. Web sources carry `url`, `name`,
+  `location` and `quote`, and no `file_id`. Voice mode does not search.
 - Qwen first selects passages likely to answer the question, then writes
   plain-language answers using them as untrusted reference material. It may summarize,
   explain, handle spelling
@@ -163,6 +171,9 @@ the JavaScript files without installing frontend packages.
 - Deliberate exceptions to the text chat rules: voice streams by sentence, uses temperature
   0.7 and a 256-token limit, and bypasses document routing and sources. `num_ctx` stays 16,384
   so Ollama does not reload the model when switching between text and voice.
+- If no sentence is playing 1.2 s after transcription (`FILLER_DELAY_MS`), a random filler from `speech.FILLERS` plays (rendered once at warmup).
+  Fillers are never captioned or added to history. The user can mute the mic (button or M);
+  a muted session stays in the `muted` state until unmuted.
 - The mic is off while replying (no barge-in). End of speech is a 1 s pause. Skip keeps only
   the sentences already heard in history; if none were heard the user turn is dropped.
 
@@ -180,10 +191,11 @@ the JavaScript files without installing frontend packages.
 - `POST /api/files/index`: reindex supported files; returns per-file `results`.
   Inspect each result's `indexed` and optional `error`, even when HTTP is 200.
 - `POST /api/chat`: nonempty `messages` array with user/assistant text roles,
-  ending with a user message. Returns `message`, `mode` (`documents`, `general` or `library`)
+  ending with a user message. Returns `message`, `mode` (`documents`, `general`, `library` or `web`)
   and `sources` containing file ID, filename, location and source passage.
 
 - `GET /api/voice/status`: `{available, reason}`. `POST /api/voice/warmup`: 204 when ready.
+- `GET /api/voice/fillers`: `{fillers: [{text, audio}]}` with base64 WAV; 503 when speech is unavailable.
 - `POST /api/voice/transcribe`: 16 kHz, 16-bit mono WAV, 4 MiB limit; returns `{text}`, empty for noise.
 - `POST /api/voice/reply`: `{messages}`; NDJSON events `sentence` (`text`, base64 WAV `audio`),
   `done` or `error` (`message`). Failures are events because HTTP 200 is already sent.

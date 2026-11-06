@@ -13,6 +13,8 @@ MODELS = Path(__file__).resolve().parent.parent / ".models"
 WHISPER_PATH = MODELS / "whisper-large-v3-turbo"
 KOKORO_PATH = MODELS / "Kokoro-82M-bf16"
 VOICE = "af_aoede"
+# Spoken while the model thinks; never captioned or kept in history.
+FILLERS = ["Hmm.", "Okay, I get it.", "Let me think.", "Right.", "Good question.", "Mm, okay.", "Let's see."]
 INPUT_RATE = 16000
 OUTPUT_RATE = 24000
 UNAVAILABLE = "Voice mode needs macOS. Run make voice-install and make voice-models, then restart."
@@ -26,6 +28,7 @@ _BOUNDARY = re.compile(r"""[.!?]+["')\]]*\s+|\n+""")
 _worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="speech")
 _kokoro = None
 _warm = False
+_fillers = None
 
 
 class SpeechError(RuntimeError):
@@ -96,16 +99,29 @@ def _render(text):
     return output.getvalue()
 
 
+def _render_fillers():
+    global _fillers
+    if _fillers is None:
+        _fillers = [(text, _render(text)) for text in FILLERS]
+    return _fillers
+
+
 def _warm_up():
     global _warm
     if not _warm:
         _render("Ready.")
         _recognize(bytes(INPUT_RATE // 5))
+        _render_fillers()
         _warm = True
 
 
 def warm_up():
     _run(_warm_up)
+
+
+def fillers():
+    """Return (text, wav bytes) for each thinking filler, rendered once."""
+    return _run(_render_fillers)
 
 
 def transcribe(data):

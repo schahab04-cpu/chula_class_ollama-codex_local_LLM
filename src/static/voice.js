@@ -5,12 +5,15 @@
   const MAX_SPEECH_MS = 110000;
   // Lets the room go quiet after a reply so the mic does not hear the speakers.
   const RESUME_DELAY_MS = 300;
+  // Quick replies start speaking before this; only slower ones get a thinking filler.
+  const FILLER_DELAY_MS = 1200;
   const LABELS = {
     loading: "Getting ready",
     listening: "Listening",
     transcribing: "Transcribing",
     thinking: "Thinking",
     speaking: "Speaking",
+    muted: "Muted",
     error: "Something went wrong",
   };
 
@@ -22,6 +25,7 @@
   const errorLine = document.querySelector("#voice-error");
   const skipButton = document.querySelector("#voice-skip");
   const endButton = document.querySelector("#voice-end");
+  const muteButton = document.querySelector("#voice-mute");
 
   let active = false;
   let state = "loading";
@@ -31,6 +35,9 @@
   let turn = null;
   let speechTimer = null;
   let resumeTimer = null;
+  let muted = false;
+  let fillers = [];
+  let lastFiller = null;
 
   function setState(next) {
     state = next;
@@ -84,6 +91,10 @@
     if (!active) return;
     clearTimeout(resumeTimer);
     resumeTimer = null;
+    if (muted) {
+      setState("muted");
+      return;
+    }
     setState("listening");
     try {
       await micVad.start();
@@ -96,6 +107,53 @@
   function listenSoon() {
     clearTimeout(resumeTimer);
     resumeTimer = setTimeout(listen, RESUME_DELAY_MS);
+  }
+
+  function showMute() {
+    muteButton.firstChild.textContent = muted ? "Unmute " : "Mute ";
+    muteButton.setAttribute("aria-pressed", String(muted));
+  }
+
+  async function toggleMute() {
+    if (!micVad) return;
+    muted = !muted;
+    showMute();
+    if (muted && state === "listening") {
+      clearSpeechTimer();
+      setState("muted");
+      await micVad.pause();
+    } else if (!muted && state === "muted") {
+      await listen();
+    }
+  }
+
+  async function loadFillers() {
+    try {
+      const response = await fetch("/api/voice/fillers");
+      if (!response.ok) return [];
+      const data = await response.json();
+      return await Promise.all(data.fillers.map(({ audio }) => {
+        const encoded = Uint8Array.from(atob(audio), (character) => character.charCodeAt(0));
+        return audioContext.decodeAudioData(encoded.buffer);
+      }));
+    } catch {
+      return [];
+    }
+  }
+
+  // Fills the silence while the model thinks; never captioned or kept in history.
+  function playFiller(current) {
+    const choices = fillers.filter((buffer) => buffer !== lastFiller);
+    if (!choices.length) return;
+    const buffer = choices[Math.floor(Math.random() * choices.length)];
+    lastFiller = buffer;
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(analyser);
+    const startAt = audioContext.currentTime + 0.05;
+    source.start(startAt);
+    current.playEnd = startAt + buffer.duration;
+    current.sources.push(source);
   }
 
   function stopTurnAudio(current) {
@@ -215,6 +273,9 @@
       heard.textContent = data.text;
       caption.textContent = "";
       setState("thinking");
+      current.timers.push(setTimeout(() => {
+        if (turn === current && !current.sources.length) playFiller(current);
+      }, FILLER_DELAY_MS));
     } catch (failure) {
       if (turn !== current) return;
       turn = null;
@@ -258,6 +319,9 @@
   async function openVoice() {
     if (active || busy) return;
     active = true;
+    muted = false;
+    showMute();
+    fillers = [];
     heard.textContent = "";
     caption.textContent = "";
     clearError();
@@ -273,6 +337,8 @@
       await audioContext.resume();
       const warmup = await fetch("/api/voice/warmup", { method: "POST" });
       if (!warmup.ok) throw new Error((await warmup.json()).error);
+      if (!active) return;
+      fillers = await loadFillers();
       if (!active) return;
       const created = await vad.MicVAD.new({
         model: "v6",
@@ -326,11 +392,17 @@
   openButton.addEventListener("click", openVoice);
   endButton.addEventListener("click", closeVoice);
   skipButton.addEventListener("click", skip);
+  muteButton.addEventListener("click", toggleMute);
   view.addEventListener("cancel", (event) => {
     event.preventDefault();
     closeVoice();
   });
   view.addEventListener("keydown", (event) => {
+    if (event.code === "KeyM") {
+      event.preventDefault();
+      if (!event.repeat) toggleMute();
+      return;
+    }
     if (event.code !== "Space") return;
     event.preventDefault();
     if (!event.repeat) skip();

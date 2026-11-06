@@ -55,12 +55,23 @@ function appendMessage(role, content, sources = [], mode = "") {
     note.className = "answer-mode";
     note.textContent = "General answer, not from your documents";
     article.append(note);
+  } else if (mode === "web") {
+    const note = document.createElement("p");
+    note.className = "answer-mode";
+    note.textContent = "Checked online; search results can be wrong too";
+    article.append(note);
   }
   for (const [index, source] of sources.entries()) {
     const link = document.createElement("a");
-    link.href = `/api/files/${encodeURIComponent(source.file_id)}`;
     link.textContent = `[${index + 1}] ${source.name} - ${source.location}`;
-    link.download = source.name;
+    if (source.url && /^https?:\/\//i.test(source.url)) {
+      link.href = source.url;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+    } else {
+      link.href = `/api/files/${encodeURIComponent(source.file_id)}`;
+      link.download = source.name;
+    }
     const reference = document.createElement("p");
     reference.append(link);
     article.append(reference);

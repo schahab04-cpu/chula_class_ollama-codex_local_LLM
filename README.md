@@ -73,6 +73,13 @@ Questions asking which model powers the app are answered from its configured mod
 name, and questions like "What files do you have access to?" from the uploaded file list. When evidence selection finds no passage for a document question, the app says
 it could not find that information instead of using the nearest unrelated passage.
 
+To fact-check a general answer, reply "Is that right?", "That's wrong", "Are you sure?"
+or "check online", or ask nearly the same question again. The app then searches
+Wikipedia for your earlier question, falling back to DuckDuckGo when Wikipedia has no
+on-topic article, and Qwen answers from the results with links as sources. Only that
+question leaves your computer. Fact checks of document answers stay with the documents,
+and search results can be wrong too.
+
 Answers can explain, summarize, and cover the available part of a broader question,
 stating what is missing. The old exact-quotation selector, all-keywords gate and
 literal-match fallback have been removed. Existing files/indexes stay compatible;
@@ -85,7 +92,10 @@ After `make voice-install` and `make voice-models`, restart the app and press **
 to talk hands-free. Chrome will ask for microphone access the first time. It listens
 until you pause for about a second, then replies aloud. The microphone is off while
 it speaks: press **Skip** or the spacebar to cut a reply short, and **End** or Esc to
-stop. The conversation stays in the chat when you close the view.
+stop. Press **Mute** or M to turn your microphone off until you unmute. If the
+answer takes more than about a second to start, it says a short random filler such as "Hmm." or "Okay, I get it."; fillers
+are not captioned or kept in the conversation. The conversation stays in the chat when
+you close the view.
 
 Voice mode is general chat only and never searches your documents. Replies are short,
 and the model remembers only what you actually heard. Speech stays on this Mac:
@@ -110,6 +120,8 @@ or before setup, the **Voice** button stays hidden and the rest of the app is un
   then writes an explanation from the selected passages. The server chooses citations
   by matching answer terms to those passages; this reduces mismatched references but
   does not prove every claim is supported.
+- `src/web_search.py`: fact-check triggers and online search (Wikipedia, then
+  DuckDuckGo through the `ddgs` package). The only code that reaches the internet.
 - `src/speech.py`: voice mode's local transcription and synthesis on one worker thread,
   sentence splitting and markup cleanup. Models load from `.models/`.
 - `src/app.py`: Flask routes and localhost startup; root `app.py` launches it.
@@ -141,7 +153,8 @@ reload. General answers use the conversation history, but each document search u
 only the latest question: restate the topic in follow-ups.
 No authentication, OCR or persistent chat history. Text chat does not stream; voice
 replies stream by sentence.
-Keep the server on localhost. Documents are sent only to local Ollama on port 11434.
+Keep the server on localhost. Documents are sent only to local Ollama on port 11434;
+fact checks send just the question to Wikipedia or DuckDuckGo.
 
 ## Troubleshooting and verification
 
@@ -178,12 +191,14 @@ If Node is installed, `node --check src/static/chat.js` checks syntax without pa
 - `DELETE /api/files/<id>`: remove the original file and its index entry.
 - `POST /api/files/index`: per-file results; HTTP 200 may contain indexing failures.
 - `POST /api/chat`: `{messages: [{role: "user", content: "question"}]}`;
-  returns `message`, `mode` (`documents`, `general` or `library`) and `sources` with file_id,
-  name, location and quote (the original passage, not the generated answer). Latest question limit: 4,000
+  returns `message`, `mode` (`documents`, `general`, `library` or `web`) and `sources` with file_id,
+  name, location and quote. Web sources carry `url` instead of `file_id` (the original passage, not the generated answer). Latest question limit: 4,000
   characters; non-upload request limit: 1 MiB.
 
 - `GET /api/voice/status`: `{available, reason}`.
 - `POST /api/voice/warmup`: load the speech models and Qwen; HTTP 204 when ready.
+- `GET /api/voice/fillers`: `{fillers: [{text, audio}]}`, the thinking fillers as
+  base64 WAV, rendered once during warmup.
 - `POST /api/voice/transcribe`: 16 kHz, 16-bit mono WAV body, up to 4 MiB (about two
   minutes); returns `{text}`, empty when the audio held only noise.
 - `POST /api/voice/reply`: `{messages}` as for chat; streams NDJSON events: `sentence`
