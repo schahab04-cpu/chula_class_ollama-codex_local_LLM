@@ -1,0 +1,74 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{xurl}
+\usepackage[hidelinks]{hyperref}
+
+\begin{document}
+
+\begin{center}
+  {\Large\bfseries BAScii Generative AI -- Final Project Report}
+\end{center}
+
+\vspace{1em}
+
+\begin{tabular}{@{}lp{11.5cm}@{}}
+  \textbf{Project Title:}      & Yapperton \\
+  \textbf{Group:}              & Aliens \\
+  \textbf{Team Members:}       & Wilhelm Axel Durelius (6901009256) \\
+                               & Shayan Gardan Gardawan (6901005756) \\
+                               & Schahab Bashar-Mal (6901001156) \\
+  \textbf{Project Repository:} & \url{https://github.com/schahab04-cpu/chula_class_ollama-codex_local_LLM} \\
+\end{tabular}
+
+\vspace{2em}
+
+\section{Project Overview}
+
+Yapperton is an oral study buddy that you can talk with. You upload your course
+material, like lecture slides or PDFs, and then you can ask questions about it
+and get easy summaries back, either in text or with your voice. Everything runs
+locally on the own computer with Ollama, so no documents is sent away to some
+company in the cloud. The idea came from that we all three study better when we
+explain things out loud to each other, but it is not always that you have a
+friend who has time to listen at 11 in the evening the day before the exam.
+
+\subsection*{What problem does your project have?}
+
+To read long course documents alone is honestly quite heavy, and many students
+(us included) lose the focus after a few pages. It is easier to learn when you
+can talk about the material and ask follow up questions, but a study partner is
+not always available. The AI tools that already exist are mostly text based and
+cloud based, which means you have to type a lot and also upload your material
+to someone else's server. We wanted something where you can just speak and get
+a short and simple explanation back, a bit like calling a classmate.
+
+\subsection*{What are the main objectives of the project?}
+
+\begin{itemize}[leftmargin=*]
+  \item Build a chat where you can ask questions about your own uploaded
+        documents (PDF, DOCX, TXT and MD) and get answers in plain language,
+        with the sources shown so you can check what the answer builds on.
+  \item Make a hands-free voice mode where you talk and the study buddy talks
+        back, using Whisper for speech to text and Kokoro for text to speech.
+  \item Keep everything local with a small model (qwen3:1.7b) so it works
+        on a normal laptop and the material stays private.
+  \item Make the summaries short and easy, so it feels more like a
+        conversation than reading a textbook one more time.
+\end{itemize}
+
+\subsection*{What is the expected outcome?}
+
+The expected outcome is a working web app that a student can start on their own
+laptop, upload the course material in, and then have a spoken conversation with
+about the content. We expect that it will make repetition before exams more fun
+and less heavy, especially for people who learn better by listening and
+talking. We are also aware that a small model can sometimes say wrong things,
+so the goal is not to replace the lectures but to be a help on the side, and
+that is why the sources always are shown in the text chat.
+
+\end{document}
