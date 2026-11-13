@@ -6,8 +6,10 @@ const wisp = (() => {
   const row = (values, colors, tau, gap, dart, events) => ({ values, colors: colors.flatMap(hex), tau, gap, dart, events });
   // Event letters: t twitch, l lean, b mote burst, f thought flash. Repeats weight the pick.
   const STATES = {
-    loading: row([.72, .45, 3.2, .55, .5, .25, .3, .7, .35, .12, .6, .15, .08, 5.5, .03, .05, .8, .05, .1, 0],
+    loading: row([.72, .45, 3.2, .55, .5, .25, 1.4, .7, .35, 1.1, .6, .15, .08, 5.5, .03, .05, .8, .05, .1, 0],
       ["#d6e8f5", "#7fa6c9", "#24405e"], .9, 6, 0, "tttb"),
+    ready: row([.8, .55, 3.6, .7, .45, .3, .4, .8, .25, .18, .6, .2, .1, 5, .025, .06, .9, .03, .15, 0],
+      ["#e4f4ff", "#6fb4d8", "#1b4a6e"], .9, 6, 0, "ttlb"),
     listening: row([1, .8, 4.2, 1, .7, .5, 1.1, 1, .2, .55, 1, .45, .16, 4.2, .035, .12, 1.4, 0, .35, .65],
       ["#e9fffb", "#5ce8d6", "#0f6f8c"], .55, 3.5, 7, "ttttlllbb"),
     transcribing: row([.88, .95, 3.6, .62, .25, .9, 1.8, 1.5, 0, 1.2, 1.15, .15, .1, 2.4, .02, .2, .5, .9, 1.4, 0],
@@ -16,6 +18,9 @@ const wisp = (() => {
       ["#f0e9ff", "#a88bff", "#3d2a9e"], .7, 4, 0, "ttlllfffff"),
     speaking: row([1, .9, 5, 1.05, .9, .75, .25, 1.2, .12, .1, .45, .6, .22, 5, .02, .1, 2.2, -.25, .1, 1],
       ["#fff6e0", "#ffd27a", "#b8562a"], .4, 2.8, 9, "ttttllbbbb"),
+    // Reading documents: slow, steady and green, like turning pages.
+    reading: row([.86, .6, 3.6, .66, .3, .35, .9, .9, .05, .3, .8, .2, .08, 4.4, .03, .15, 1.2, .2, .6, 0],
+      ["#eafff2", "#79dca6", "#1d6a48"], .8, 7, 0, "tlb"),
     muted: row([.7, .35, 3, .5, .3, .2, .25, .8, .1, .08, .5, .1, .06, 6, .02, .03, .4, .05, .1, 0],
       ["#dfe4ea", "#7d8896", "#2c3440"], 1, 8, 0, "tb"),
     error: row([.78, .5, 3, .6, .25, .2, 0, .5, -.55, 0, .35, .08, .05, 7, .025, .03, .25, -.05, 0, 0],
@@ -49,6 +54,9 @@ const wisp = (() => {
   let cx = 0, cy = 0, cvx = 0, cvy = 0, dartX = 0, dartY = 0, dartEnd = 0, nextDart = 0, nextEvent = 0, echoAt = 0;
   let leanX = 0, leanY = 0, leanToX = 0, leanToY = 0, leanEnd = 0, perk = 0, sag = 0, flash = 0, moteDebt = 0;
   let tendrils = [];
+  // Signature motions fade in with their state: inward rings while listening (sound arriving),
+  // circling comets while transcribing (decoding). Speaking has its outward kicks instead.
+  let listenWeight = 0, scanWeight = 0, scanAngle = 0, loadWeight = 0, loadAngle = 0;
   const motes = Array.from({ length: 48 }, () => ({ life: 0, max: 1, x: 0, y: 0, vx: 0, vy: 0, size: .1, seed: 0 }));
   const anyTendril = () => tendrils[Math.floor(Math.random() * tendrils.length)];
 
@@ -74,6 +82,7 @@ const wisp = (() => {
     S.colors.forEach((value, i) => { colorMid[i] = color[i] = value; });
     motes.forEach((m) => { m.life = 0; });
     clock = age = lastFrame = cx = cy = cvx = cvy = lv = lo = md = hi = slow = heard = 0;
+    listenWeight = scanWeight = scanAngle = loadWeight = loadAngle = 0;
     dartX = dartY = dartEnd = leanX = leanY = leanToX = leanToY = leanEnd = perk = sag = flash = echoAt = 0;
     spinNow = cur.spin; frameAvg = 1 / 60; low = false; nextEvent = gapAfter(S.gap); nextDart = 1;
     if (quiet) {
@@ -294,6 +303,56 @@ const wisp = (() => {
     }
   }
 
+  function stepSignatures(dt) {
+    listenWeight += ((stateName === "listening" ? 1 : 0) - listenWeight) * ease(dt, .35);
+    scanWeight += ((stateName === "transcribing" ? 1 : 0) - scanWeight) * ease(dt, .25);
+    if (!quiet) scanAngle += dt * (3.4 + 1.2 * Math.sin(clock * 1.3));
+    loadWeight += ((stateName === "loading" ? 1 : 0) - loadWeight) * ease(dt, .3);
+    if (!quiet) loadAngle += dt * 4.2;
+  }
+  function drawLoading() {
+    if (loadWeight < .01) return;
+    // A loading spinner: one arc that circles the core while stretching and shrinking.
+    const radius = coreNow * 2.2, length = quiet ? 2.4 : 1.5 + 1.2 * Math.sin(clock * 2.1), steps = 28;
+    for (let i = 0; i < steps; i += 1) {
+      const a = loadAngle - (i / (steps - 1)) * length, fade = .35 + .65 * (1 - i / steps);
+      stamp("spark", cx + Math.cos(a) * radius, cy + Math.sin(a) * radius, .34, loadWeight * fade * .85);
+    }
+    stamp("glow", cx + Math.cos(loadAngle) * radius, cy + Math.sin(loadAngle) * radius, .8, loadWeight * .45);
+  }
+  function drawListening() {
+    if (listenWeight < .01) return;
+    // Three rings travel from outside into the core; louder speech makes them brighter.
+    const level = .22 + .78 * clamp01(heard * (.45 + lv));
+    ctx.lineWidth = Math.max(1, unit * .035);
+    for (let k = 0; k < 3; k += 1) {
+      const p = quiet ? (k + .5) / 3 : (clock * .55 + k / 3) % 1;
+      const radius = coreNow * (3.4 - 2.3 * p) * unit;
+      const alpha = listenWeight * level * Math.sin(Math.PI * p) * .55;
+      if (alpha < .01) continue;
+      ctx.globalAlpha = clamp01(alpha);
+      ctx.strokeStyle = css(3, 1);
+      ctx.beginPath();
+      ctx.arc(ox + cx * unit, oy + cy * unit, radius, 0, TAU);
+      ctx.stroke();
+    }
+  }
+  function drawTranscribing() {
+    if (scanWeight < .01) return;
+    // Two comets circle the core in opposite halves, each trailing a fading tail.
+    const radius = coreNow * 2.05, steps = 24;
+    for (let comet = 0; comet < 2; comet += 1) {
+      const head = scanAngle + comet * Math.PI;
+      for (let i = 0; i < steps; i += 1) {
+        const a = head - i * .06, fade = (1 - i / steps) ** 1.4;
+        const x = cx + Math.cos(a) * radius, y = cy + Math.sin(a) * radius * .82;
+        if (i < 3) stamp("glow", x, y, .9, scanWeight * .5 * fade);
+        stamp("spark", x, y, .55 * (1 - .55 * i / steps), scanWeight * fade);
+      }
+    }
+    stamp("halo", cx, cy, coreNow * 3.6, scanWeight * .12 * (1 + .5 * Math.sin(clock * 6)));
+  }
+
   function stamp(name, x, y, size, alpha) {
     const s = size * unit;
     ctx.globalAlpha = clamp01(alpha);
@@ -324,6 +383,7 @@ const wisp = (() => {
     const voice = cur.react * (quiet ? .3 : 1);
     const glow = cur.glow * (1 + .35 * lv * voice + .2 * perk - .15 * sag);
     stamp("halo", cx, cy, 2 * cur.halo * (1 + (.25 * slow + .12 * lv) * voice) * (1 + .03 * breath), .34 * glow);
+    drawListening();
     ctx.fillStyle = filament;
     for (const t of tendrils) {
       const last = t.n - 1, tone = t.depth * (.55 + .45 * glow) + .4 * t.flare;
@@ -360,6 +420,8 @@ const wisp = (() => {
     for (const m of motes) {
       if (m.life > 0) stamp("spark", m.x, m.y, m.size, Math.sin(Math.PI * clamp01(m.life / m.max)) ** .7 * (.6 + .4 * noise(m.seed, clock * 3)));
     }
+    drawTranscribing();
+    drawLoading();
   }
   function frame(now) {
     raf = requestAnimationFrame(frame);
@@ -379,6 +441,7 @@ const wisp = (() => {
     moveCore(dt);
     stepTendrils(dt);
     stepMotes(dt);
+    stepSignatures(dt);
     draw();
   }
 

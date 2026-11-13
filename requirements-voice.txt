@@ -1,5 +1,10 @@
-# macOS (Apple silicon) only; install with `make voice-install`.
-mlx-whisper==0.4.3
-mlx-audio==0.6.3
-misaki[en]==0.9.4
-en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl
+# Voice mode speech packages; pip installs the right set for this computer.
+# Install with `make voice-install` (or `python scripts/tasks.py voice-install`).
+# Apple silicon Macs: MLX on the GPU.
+mlx-whisper==0.4.3; sys_platform == "darwin" and platform_machine == "arm64"
+mlx-audio==0.6.3; sys_platform == "darwin" and platform_machine == "arm64"
+misaki[en]==0.9.4; sys_platform == "darwin" and platform_machine == "arm64"
+en_core_web_sm @ https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl ; sys_platform == "darwin" and platform_machine == "arm64"
+# Windows, Intel Macs and Linux: CTranslate2 and ONNX Runtime on the CPU (Python 3.10-3.13).
+faster-whisper==1.2.1; sys_platform != "darwin" or platform_machine != "arm64"
+kokoro-onnx==0.6.1; sys_platform != "darwin" or platform_machine != "arm64"

@@ -1,6 +1,8 @@
 :root { font-family: system-ui, sans-serif; color: #202c39; background: #f3f5f7; }
 * { box-sizing: border-box; }
-body { margin: 0; padding: 16px; }
+body { margin: 0; background: #04060c; }
+.workspace-dialog { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 16px; border: 0; background: #f3f5f7; color: #202c39; }
+.workspace-dialog::backdrop { background: #04060c; }
 .workspace { max-width: 1480px; margin: auto; display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 16px; }
 .chat, .documents { height: calc(100dvh - 32px); min-height: 480px; display: flex; flex-direction: column; background: white; border: 1px solid #dce2e8; border-radius: 16px; overflow: hidden; }
 .documents h2 { margin: 0; font-size: 1.15rem; }
@@ -8,7 +10,7 @@ body { margin: 0; padding: 16px; }
 .dropzone { position: relative; min-height: 150px; margin: 0; padding: 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; border: 2px dashed #aebed2; border-radius: 12px; background: #f8faff; color: #465b75; text-align: center; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
 .dropzone:hover, .dropzone.is-dragging { border-color: #245bce; background: #edf3ff; }
 .dropzone:focus-within { outline: 3px solid #89aeff; outline-offset: 2px; }
-#file-input { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+#file-input, #upload-input { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
 .dropzone-title { font-weight: 700; color: #263e5c; }
 .dropzone-hint { color: #617080; font-size: .75rem; }
 .files-heading { display: flex; align-items: center; justify-content: space-between; padding: 16px 16px 0; gap: 12px; }
@@ -27,12 +29,11 @@ body { margin: 0; padding: 16px; }
 #file-status:empty { display: none; }
 #file-error { padding: 10px; color: #8e2330; background: #fff0f1; border-radius: 8px; white-space: pre-line; }
 .collector-note { color: #617080; line-height: 1.5; }
-.index-button { margin: 0 16px 8px; }
 @media (max-width: 850px) {
   .workspace { grid-template-columns: minmax(0, 1fr) 300px; }
 }
 @media (max-width: 680px) {
-  body { padding: 0; }
+  .workspace-dialog { padding: 0; }
   .workspace { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .chat { height: 72dvh; min-height: 420px; border-radius: 0; }
   .documents { height: 48dvh; min-height: 340px; border-top: 0; border-radius: 0; }
@@ -81,7 +82,19 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #89aeff; outli
 
 .chat-actions { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
 .voice-view { position: fixed; inset: 0; width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0; overflow: hidden; color: #dfe9f5; background: radial-gradient(120% 90% at 50% 46%, #0e1a2c 0%, #070b14 60%, #04060c 100%); }
-.voice-view::backdrop { background: #04060c; }
+.voice-top { position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 24px; border: 0; }
+.voice-brand { margin: 0; font-weight: 600; color: #dfe9f5; }
+.voice-brand span { display: block; margin-top: 2px; font-weight: normal; font-size: .8rem; color: #8ea3bb; }
+.voice-start { margin-top: 14px; padding: 14px 34px; border-radius: 999px; background: #dfe9f5; color: #0b1424; font-size: 1.05rem; font-weight: 600; }
+.voice-start:hover { background: #ffffff; }
+.voice-start:focus-visible { outline: 3px solid #89aeff; outline-offset: 3px; }
+.voice-sources { font-size: .8rem; color: #8ea3bb; }
+.voice-sources:empty { display: none; }
+.voice-unavailable { max-width: 520px; color: #c3d0de; font-size: .9rem; line-height: 1.5; }
+@media (max-width: 540px) {
+  .voice-top { padding: 12px 16px; }
+  .voice-brand span { display: none; }
+}
 #voice-wisp { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .voice-panel { position: absolute; left: 50%; bottom: 24px; width: min(720px, 92vw); transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; }
 .voice-panel p { margin: 0; overflow-wrap: anywhere; }
@@ -97,3 +110,41 @@ button:focus-visible, textarea:focus-visible { outline: 3px solid #89aeff; outli
 .voice-button kbd { margin-left: 6px; font: inherit; font-size: .75rem; opacity: .7; }
 
 [hidden] { display: none !important; }
+
+/* Quizzes: shared by the light chat transcript and the dark voice screen, so colors inherit. */
+.quiz { margin-top: 12px; }
+.quiz-title { margin: 0; font-size: 1.05rem; }
+.quiz-score { margin: 4px 0 0; font-size: .8rem; opacity: .75; }
+.quiz-questions { margin: 14px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 16px; }
+.quiz-prompt { margin: 0 0 8px; font-weight: 600; line-height: 1.45; white-space: normal; }
+.quiz-options { display: grid; gap: 6px; }
+.quiz-option { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 12px; border: 1px solid rgba(128, 144, 166, .45); border-radius: 8px; background: transparent; color: inherit; text-align: left; line-height: 1.4; cursor: pointer; }
+.quiz-option:hover:not(:disabled) { border-color: #4d7fe0; background: rgba(77, 127, 224, .1); }
+.quiz-option:disabled { opacity: 1; cursor: default; }
+.quiz-option:focus-visible { outline: 3px solid #89aeff; outline-offset: 2px; }
+.quiz-letter { flex: 0 0 auto; width: 22px; height: 22px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; border: 1px solid currentColor; font-size: .75rem; opacity: .8; }
+.quiz-option.is-correct { border-color: #2f9e62; background: rgba(47, 158, 98, .16); }
+.quiz-option.is-wrong { border-color: #d0485a; background: rgba(208, 72, 90, .16); }
+.quiz-feedback { margin-top: 8px; font-size: .88rem; line-height: 1.5; }
+.quiz-feedback details { margin-top: 6px; }
+.quiz-feedback summary { cursor: pointer; opacity: .8; }
+.quiz-feedback details p { white-space: pre-wrap; opacity: .85; }
+.message .quiz-prompt, .message .quiz-feedback p { margin-top: 0; }
+.voice-quiz { position: absolute; top: 72px; right: 24px; width: min(440px, calc(100% - 48px)); max-height: calc(100dvh - 300px); overflow-y: auto; padding: 18px 20px; border: 1px solid rgba(223, 233, 245, .18); border-radius: 14px; background: rgba(9, 16, 28, .88); color: #dfe9f5; backdrop-filter: blur(6px); }
+.voice-quiz-close { position: absolute; top: 8px; right: 8px; width: 32px; height: 32px; padding: 0; border-radius: 50%; background: transparent; color: #c3d0de; font-size: 1.3rem; line-height: 1; }
+.voice-quiz-close:hover { background: rgba(223, 233, 245, .12); }
+.voice-quiz .quiz { margin-top: 0; padding-right: 20px; }
+@media (max-width: 700px) {
+  .voice-quiz { top: 64px; left: 16px; right: 16px; width: auto; max-height: calc(100dvh - 330px); }
+}
+
+/* Upload box: opened by "I want to upload a document" in voice or chat. */
+.upload-dialog { width: min(520px, calc(100vw - 32px)); padding: 0; border: 0; border-radius: 16px; background: white; color: #202c39; }
+.upload-dialog::backdrop { background: rgba(4, 6, 12, .65); }
+.upload-dialog header { padding: 14px 18px; }
+.upload-dialog h2 { margin: 0; font-size: 1.05rem; }
+.upload-dialog .dropzone { margin: 18px; min-height: 190px; }
+.upload-status { margin: 0 18px 16px; font-size: .88rem; color: #465b75; }
+.upload-status:empty { display: none; }
+.upload-error { margin: 0 18px 16px; padding: 10px; border-radius: 8px; color: #8e2330; background: #fff0f1; font-size: .85rem; white-space: pre-line; }
+#file-list .file-failed { color: #a52837; }

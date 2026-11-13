@@ -7,7 +7,12 @@
   const RESUME_DELAY_MS = 300;
   // Quick replies start speaking before this; only slower ones get a thinking filler.
   const FILLER_DELAY_MS = 1200;
+  // Document answers wait for retrieval and passage selection; a second filler covers that.
+  const SECOND_FILLER_MS = 4000;
   const LABELS = {
+    ready: "Ready when you are",
+    reading: "Reading your documents",
+    unavailable: "Voice is not set up",
     loading: "Getting ready",
     listening: "Listening",
     transcribing: "Transcribing",
@@ -17,7 +22,15 @@
     error: "Something went wrong",
   };
 
-  const openButton = document.querySelector("#voice-open");
+  const startButton = document.querySelector("#voice-start");
+  const unavailableLine = document.querySelector("#voice-unavailable");
+  const controls = document.querySelector("#voice-controls");
+  const sourcesLine = document.querySelector("#voice-sources");
+  const quizPanel = document.querySelector("#voice-quiz");
+  const quizBody = document.querySelector("#voice-quiz-body");
+  const workspace = document.querySelector("#workspace");
+  const workspaceOpen = document.querySelector("#workspace-open");
+  const workspaceClose = document.querySelector("#workspace-close");
   const view = document.querySelector("#voice-view");
   const statusLine = document.querySelector("#voice-status");
   const heard = document.querySelector("#voice-heard");
@@ -38,13 +51,16 @@
   let muted = false;
   let fillers = [];
   let lastFiller = null;
+  let voiceAvailable = false;
+  // Set while the server indexes or summarizes documents: the mic stays off until it is done.
+  let reading = "";
 
   function setState(next) {
     state = next;
     view.dataset.state = next;
-    statusLine.textContent = LABELS[next];
+    statusLine.textContent = next === "reading" && reading ? reading : LABELS[next];
     skipButton.disabled = !["thinking", "speaking"].includes(next);
-    wisp.setState(next);
+    wisp.setState(next === "unavailable" ? "muted" : next);
   }
 
   function showError(message) {
@@ -91,6 +107,10 @@
     if (!active) return;
     clearTimeout(resumeTimer);
     resumeTimer = null;
+    if (reading) {
+      setState("reading");
+      return;
+    }
     if (muted) {
       setState("muted");
       return;
@@ -122,7 +142,7 @@
       clearSpeechTimer();
       setState("muted");
       await micVad.pause();
-    } else if (!muted && state === "muted") {
+    } else if (!muted && state === "muted" && !reading) {
       await listen();
     }
   }
@@ -167,10 +187,17 @@
   // Keeps only what was actually heard, so the model's memory matches the conversation.
   function commitTurn(current) {
     if (!current.spoken.length) return;
-    const reply = { role: "assistant", content: current.spoken.join(" ") };
+    const reply = { role: "assistant", content: current.spoken.join(" "), mode: current.mode };
     messages.push(current.pending, reply);
     appendMessage("user", current.pending.content);
-    appendMessage("assistant", reply.content, [], "general");
+    appendMessage("assistant", reply.content, current.citations, current.mode, current.quiz);
+    showSources(current.citations);
+  }
+
+  // Names the documents an answer came from; the full passages are in Chat & documents.
+  function showSources(citations) {
+    const names = [...new Set(citations.map((source) => `${source.name}, ${source.location}`))];
+    sourcesLine.textContent = names.length ? `From ${names.join(" · ")}` : "";
   }
 
   function finishTurn() {
@@ -186,6 +213,7 @@
     const encoded = Uint8Array.from(atob(event.audio), (character) => character.charCodeAt(0));
     const buffer = await audioContext.decodeAudioData(encoded.buffer);
     if (turn !== current) return;
+    current.answered = true;
     const source = audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(analyser);
@@ -223,8 +251,19 @@
       for (const line of lines) {
         const event = JSON.parse(line);
         if (event.type === "error") throw new Error(event.message);
-        if (event.type === "done") return;
-        await scheduleSentence(current, event);
+        if (event.type === "sources") {
+          current.citations = event.sources;
+        } else if (event.type === "upload") {
+          openUploadDialog();
+        } else if (event.type === "quiz") {
+          current.quiz = event.quiz;
+          showQuiz(event.quiz);
+        } else if (event.type === "done") {
+          current.mode = event.mode || "general";
+          return;
+        } else {
+          await scheduleSentence(current, event);
+        }
       }
     }
   }
@@ -252,7 +291,10 @@
     clearSpeechTimer();
     setState("transcribing");
     await micVad.pause();
-    const current = { pending: null, controller: new AbortController(), spoken: [], timers: [], sources: [], playEnd: 0 };
+    const current = {
+      pending: null, controller: new AbortController(), spoken: [], timers: [], sources: [], playEnd: 0,
+      answered: false, citations: [], mode: "general", quiz: null,
+    };
     turn = current;
     try {
       const response = await fetch("/api/voice/transcribe", {
@@ -272,10 +314,14 @@
       current.pending = { role: "user", content: data.text };
       heard.textContent = data.text;
       caption.textContent = "";
+      sourcesLine.textContent = "";
       setState("thinking");
       current.timers.push(setTimeout(() => {
         if (turn === current && !current.sources.length) playFiller(current);
       }, FILLER_DELAY_MS));
+      current.timers.push(setTimeout(() => {
+        if (turn === current && !current.answered) playFiller(current);
+      }, FILLER_DELAY_MS + SECOND_FILLER_MS));
     } catch (failure) {
       if (turn !== current) return;
       turn = null;
@@ -295,7 +341,32 @@
     listen();
   }
 
-  async function closeVoice() {
+  function showIdle() {
+    controls.hidden = true;
+    startButton.hidden = !voiceAvailable;
+    startButton.disabled = Boolean(reading);
+    setState(!voiceAvailable ? "unavailable" : reading ? "reading" : "ready");
+  }
+
+  // Documents being read pause the conversation: the mic turns off between turns and
+  // comes back when reading finishes. A reply already under way is allowed to finish.
+  document.addEventListener("documents-busy", async (event) => {
+    reading = event.detail.busy ? (event.detail.detail || LABELS.reading) : "";
+    if (!active) {
+      if (voiceAvailable) showIdle();
+      return;
+    }
+    if (reading && ["listening", "muted", "reading"].includes(state)) {
+      clearSpeechTimer();
+      await micVad?.pause();
+      setState("reading");
+    } else if (!reading && state === "reading") {
+      await listen();
+    }
+  });
+
+  async function endSession() {
+    if (!active) return;
     active = false;
     clearSpeechTimer();
     clearTimeout(resumeTimer);
@@ -306,9 +377,8 @@
     audioContext = null;
     analyser = null;
     wisp.setAnalyser(null);
-    wisp.stop();
-    if (view.open) view.close();
-    prompt.focus();
+    showIdle();
+    if (!workspace.open) startButton.focus();
     try {
       await closingVad?.destroy();
     } finally {
@@ -316,17 +386,19 @@
     }
   }
 
-  async function openVoice() {
-    if (active || busy) return;
+  async function startSession() {
+    if (active || busy || reading || !voiceAvailable) return;
     active = true;
     muted = false;
     showMute();
     fillers = [];
     heard.textContent = "";
     caption.textContent = "";
+    sourcesLine.textContent = "";
     clearError();
-    view.showModal();
-    wisp.start(document.querySelector("#voice-wisp"));
+    startButton.hidden = true;
+    controls.hidden = false;
+    endButton.focus();
     setState("loading");
     // Created inside the click so the browser allows it to play.
     audioContext = new AudioContext();
@@ -389,29 +461,61 @@
     }
   }
 
-  openButton.addEventListener("click", openVoice);
-  endButton.addEventListener("click", closeVoice);
+  // The quiz stays on the voice screen while the conversation continues; answers are clicked.
+  function showQuiz(quiz) {
+    quizBody.replaceChildren(renderQuiz(quiz));
+    quizPanel.hidden = false;
+    quizPanel.scrollTop = 0;
+  }
+
+  function openWorkspace() {
+    // The mic would keep listening behind the panel, so typing ends the voice session.
+    endSession();
+    workspace.showModal();
+    prompt.focus();
+  }
+
+  startButton.addEventListener("click", startSession);
+  endButton.addEventListener("click", endSession);
   skipButton.addEventListener("click", skip);
   muteButton.addEventListener("click", toggleMute);
-  view.addEventListener("cancel", (event) => {
-    event.preventDefault();
-    closeVoice();
+  workspaceOpen.addEventListener("click", openWorkspace);
+  document.querySelector("#voice-quiz-close").addEventListener("click", () => {
+    quizPanel.hidden = true;
   });
-  view.addEventListener("keydown", (event) => {
-    if (event.code === "KeyM") {
+  workspaceClose.addEventListener("click", () => workspace.close());
+  workspace.addEventListener("close", () => (voiceAvailable ? startButton : workspaceOpen).focus());
+  document.addEventListener("keydown", (event) => {
+    // Shortcuts belong to the voice screen only, never to the chat panel or previews.
+    if (document.querySelector("dialog[open]") || event.ctrlKey || event.metaKey || event.altKey) return;
+    if (event.code === "Escape" && active) {
+      event.preventDefault();
+      endSession();
+    } else if (event.code === "KeyM" && active) {
       event.preventDefault();
       if (!event.repeat) toggleMute();
-      return;
+    } else if (event.code === "Space" && !(event.target instanceof HTMLButtonElement)) {
+      event.preventDefault();
+      if (event.repeat) return;
+      if (active) skip();
+      else startSession();
     }
-    if (event.code !== "Space") return;
-    event.preventDefault();
-    if (!event.repeat) skip();
   });
 
+  wisp.start(document.querySelector("#voice-wisp"));
+  setState("loading");
   fetch("/api/voice/status")
     .then((response) => response.json())
     .then((data) => {
-      openButton.hidden = !data.available;
+      voiceAvailable = Boolean(data.available);
+      unavailableLine.textContent = voiceAvailable ? "" : `${data.reason} Until then, use Chat & documents.`;
+      unavailableLine.hidden = voiceAvailable;
+      showIdle();
+      if (voiceAvailable) startButton.focus();
     })
-    .catch(() => {});
+    .catch(() => {
+      unavailableLine.textContent = "Cannot reach the app server. Check that it is running, then reload.";
+      unavailableLine.hidden = false;
+      showIdle();
+    });
 }

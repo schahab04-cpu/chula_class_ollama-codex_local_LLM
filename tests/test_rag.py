@@ -47,6 +47,42 @@ class RagTests(unittest.TestCase):
         with self.assertRaisesRegex(DocumentError, "OCR"):
             extract(path)
 
+    @patch("src.rag.summarize_document", return_value=("Launch plan", "When the product launches."))
+    @patch("src.rag.embed", return_value=[[1.0, 0.0]])
+    def test_summaries_are_stored_and_dropped_when_stale_or_deleted(self, _, summarize):
+        kb = KnowledgeBase(self.folder)
+        kb.index(self.path, summary_model="m")
+        self.assertEqual(kb.summaries(), [{"file": "notes.txt", "title": "Launch plan",
+                                           "summary": "When the product launches."}])
+        self.assertEqual(summarize.call_args.args, ("notes.txt", ["The launch date is 15 June 2027."], "m"))
+        self.path.write_text("Changed", encoding="utf-8")
+        kb.index(self.path)
+        self.assertEqual(kb.summaries(), [])
+        kb.index(self.path, summary_model="m")
+        kb.forget(self.path.name)
+        self.assertEqual(kb.summaries(), [])
+
+    @patch("src.rag.summarize_document", return_value=("T", "S."))
+    @patch("src.rag.embed", return_value=[[1.0, 0.0]])
+    def test_missing_summaries_are_filled_from_stored_passages(self, embeddings, summarize):
+        kb = KnowledgeBase(self.folder)
+        kb.index(self.path)
+        embeddings.reset_mock()
+        kb.fill_missing_summaries("m")
+        self.assertEqual([s["title"] for s in kb.summaries()], ["T"])
+        embeddings.assert_not_called()
+        kb.fill_missing_summaries("m")
+        self.assertEqual(summarize.call_count, 1)
+
+    @patch("src.rag.summarize_document", side_effect=ValueError("bad"))
+    @patch("src.rag.embed", return_value=[[1.0, 0.0]])
+    def test_failed_summary_keeps_the_document_indexed(self, *_):
+        kb = KnowledgeBase(self.folder)
+        with self.assertLogs("src.rag", level="WARNING"):
+            kb.index(self.path, summary_model="m")
+        self.assertTrue(kb.ready(self.path))
+        self.assertEqual(kb.summaries(), [])
+
     @patch("src.rag.embed", return_value=[[1.0, 0.0]])
     def test_persistent_index_search_and_changed_file(self, embeddings):
         kb = KnowledgeBase(self.folder)
@@ -56,8 +92,8 @@ class RagTests(unittest.TestCase):
         self.assertEqual(restarted.retrieve("When is launch?")[0]["name"], "notes.txt")
         self.path.write_text("Changed", encoding="utf-8")
         self.assertFalse(restarted.ready(self.path))
-        with self.assertRaises(DocumentError):
-            restarted.retrieve("When is launch?")
+        # Stale search data is never used; the app reindexes the file before answering.
+        self.assertEqual(restarted.retrieve("When is launch?"), [])
 
     @patch("src.rag.embed", return_value=[[1.0, 0.0]])
     def test_deleted_files_are_not_retrieved(self, embeddings):

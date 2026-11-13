@@ -42,13 +42,15 @@ def normalized(vector):
     return [v / length for v in vector]
 
 
-def embed(texts, model, query=False):
+def embed(texts, model, query=False, keep_alive=None):
     prefix = "search_query: " if query else "search_document: "
     vectors = []
     for start in range(0, len(texts), 16):
         batch = texts[start:start + 16]
-        result = ollama("embed", {"model": model,
-            "input": [prefix + text for text in batch], "truncate": False})
+        payload = {"model": model, "input": [prefix + text for text in batch], "truncate": False}
+        if keep_alive:
+            payload["keep_alive"] = keep_alive
+        result = ollama("embed", payload)
         items = result.get("embeddings")
         if not isinstance(items, list) or len(items) != len(batch):
             raise ValueError("Ollama returned an unexpected embedding count.")

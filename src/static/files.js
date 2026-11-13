@@ -6,13 +6,22 @@ const fileList = document.querySelector("#file-list");
 const fileStatus = document.querySelector("#file-status");
 const fileError = document.querySelector("#file-error");
 const fileCount = document.querySelector("#file-count");
-const indexFiles = document.querySelector("#index-files");
+const uploadDialog = document.querySelector("#upload-dialog");
+const uploadInput = document.querySelector("#upload-input");
+const uploadDropzone = document.querySelector("#upload-dropzone");
+const uploadStatus = document.querySelector("#upload-status");
+const uploadError = document.querySelector("#upload-error");
+// Each drop box reports into its own status and error lines.
+const panelReport = { status: fileStatus, error: fileError };
+const dialogReport = { status: uploadStatus, error: uploadError };
 const previewDialog = document.querySelector("#preview-dialog");
 const previewTitle = document.querySelector("#preview-title");
 const previewFrame = document.querySelector("#preview-frame");
 const previewDownload = document.querySelector("#preview-download");
 const previewClose = document.querySelector("#preview-close");
 let filesBusy = false;
+// True while the server indexes or summarizes documents; chat and voice wait for it.
+let documentsReading = false;
 
 async function filesRequest(url, options) {
   const response = await fetch(url, options);
@@ -27,15 +36,37 @@ function fileErrorMessage(error) {
     : error.message;
 }
 
-function showFileError(error) {
-  fileError.textContent = fileErrorMessage(error);
-  fileError.hidden = false;
+function showFileError(error, report = panelReport) {
+  report.error.textContent = fileErrorMessage(error);
+  report.error.hidden = false;
+}
+
+function setReading(busy, detail = "") {
+  const finished = documentsReading && !busy;
+  documentsReading = busy;
+  document.dispatchEvent(new CustomEvent("documents-busy", { detail: { busy, detail } }));
+  if (finished) loadFiles().catch(showFileError);
+}
+
+async function checkReading() {
+  try {
+    const data = await filesRequest("/api/documents/status");
+    setReading(data.busy, data.detail);
+  } catch {
+    // The status poll is advisory; the server still refuses questions while busy.
+  }
+}
+
+async function pollReading() {
+  await checkReading();
+  setTimeout(pollReading, documentsReading ? 1000 : 4000);
 }
 
 function setBusy(value) {
   filesBusy = value;
-  fileInput.disabled = refreshFiles.disabled = indexFiles.disabled = value;
+  fileInput.disabled = uploadInput.disabled = refreshFiles.disabled = value;
   dropzone.setAttribute("aria-busy", String(value));
+  uploadDropzone.setAttribute("aria-busy", String(value));
   fileList.querySelectorAll("button").forEach((button) => { button.disabled = value; });
 }
 
@@ -57,8 +88,9 @@ async function loadFiles() {
       : file.size < 1024 * 1024 ? `${(file.size / 1024).toFixed(1)} KiB`
       : `${(file.size / (1024 * 1024)).toFixed(1)} MiB`;
     const indexed = document.createElement("span");
-    indexed.className = file.indexed ? "file-ready" : "file-not-ready";
-    indexed.textContent = file.indexed ? "Ready for questions" : "Not indexed";
+    indexed.className = file.indexed ? "file-ready" : file.error ? "file-failed" : "file-not-ready";
+    indexed.textContent = file.indexed ? "Ready for questions"
+      : file.error ? `Could not be read: ${file.error}` : "Reading…";
     details.append(link, size, indexed);
 
     const remove = document.createElement("button");
@@ -75,15 +107,17 @@ async function loadFiles() {
   fileStatus.textContent = data.files.length ? "" : "No documents yet. Drop files here to get started.";
 }
 
-async function uploadFiles(files) {
-  if (filesBusy || !files.length) return;
+async function uploadFiles(files, report = panelReport) {
+  if (filesBusy || !files.length) return false;
   const failures = [];
   const duplicates = [];
-  fileError.hidden = true;
+  report.error.hidden = true;
   setBusy(true);
   try {
     for (const [index, file] of files.entries()) {
-      fileStatus.textContent = `Uploading and indexing ${index + 1} of ${files.length}: ${file.name}`;
+      report.status.textContent = `Uploading and reading ${index + 1} of ${files.length}: ${file.name}`;
+      // Lock chat and voice right away rather than waiting for the next status poll.
+      setReading(true, `Reading ${file.name}`);
       if (file.size >= 20 * 1024 * 1024) {
         failures.push(`${file.name}: choose a file smaller than 20 MiB.`);
         continue;
@@ -97,23 +131,48 @@ async function uploadFiles(files) {
         failures.push(`${file.name}: ${fileErrorMessage(error)}`);
       }
     }
-    fileInput.value = "";
+    fileInput.value = uploadInput.value = "";
     await loadFiles();
     const uploaded = files.length - failures.length - duplicates.length;
     const summary = uploaded
-      ? `Uploaded and indexed ${uploaded} of ${files.length} document${files.length === 1 ? "" : "s"}.`
+      ? `${uploaded} of ${files.length} document${files.length === 1 ? " is" : "s are"} ready for questions.`
       : "No new documents were uploaded.";
-    fileStatus.textContent = duplicates.length ? `${summary} Already uploaded: ${duplicates.join(", ")}.` : summary;
-    if (failures.length) showFileError(new Error(failures.join("\n")));
+    report.status.textContent = duplicates.length ? `${summary} Already uploaded: ${duplicates.join(", ")}.` : summary;
+    if (failures.length) showFileError(new Error(failures.join("\n")), report);
+    return !failures.length;
   } catch (error) {
-    showFileError(error);
+    showFileError(error, report);
+    return false;
   } finally {
     setBusy(false);
+    await checkReading();
   }
+}
+
+// Opened when the user asks to upload, by voice or in chat.
+function openUploadDialog() {
+  uploadStatus.textContent = "";
+  uploadError.hidden = true;
+  if (!uploadDialog.open) uploadDialog.showModal();
+  uploadDropzone.focus();
+}
+
+async function uploadFromDialog(files) {
+  const succeeded = await uploadFiles(files, dialogReport);
+  // Close once everything is ready, so the conversation can carry on.
+  if (succeeded) setTimeout(() => uploadDialog.close(), 1500);
 }
 
 uploadForm.addEventListener("submit", (event) => event.preventDefault());
 fileInput.addEventListener("change", () => uploadFiles(Array.from(fileInput.files)));
+uploadInput.addEventListener("change", () => uploadFromDialog(Array.from(uploadInput.files)));
+document.querySelector("#upload-close").addEventListener("click", () => uploadDialog.close());
+
+// Both drop boxes share the page-level drag handlers; this finds the one under the pointer.
+function zoneFor(target) {
+  if (uploadDialog.open) return uploadDropzone.contains(target) ? uploadDropzone : null;
+  return dropzone.contains(target) ? dropzone : null;
+}
 
 function isFileDrag(event) {
   return Array.from(event.dataTransfer?.types || []).includes("Files");
@@ -122,14 +181,16 @@ function isFileDrag(event) {
 document.addEventListener("dragover", (event) => {
   if (!isFileDrag(event)) return;
   event.preventDefault();
-  const accepted = dropzone.contains(event.target) && !filesBusy;
+  const zone = zoneFor(event.target);
+  const accepted = Boolean(zone) && !filesBusy;
   event.dataTransfer.dropEffect = accepted ? "copy" : "none";
-  dropzone.classList.toggle("is-dragging", accepted);
+  for (const each of [dropzone, uploadDropzone]) each.classList.toggle("is-dragging", accepted && each === zone);
 }, true);
 
 document.addEventListener("dragleave", (event) => {
-  if (isFileDrag(event) && !dropzone.contains(event.relatedTarget)) {
+  if (isFileDrag(event) && !zoneFor(event.relatedTarget)) {
     dropzone.classList.remove("is-dragging");
+    uploadDropzone.classList.remove("is-dragging");
   }
 }, true);
 
@@ -137,13 +198,17 @@ document.addEventListener("drop", (event) => {
   if (!isFileDrag(event)) return;
   event.preventDefault();
   dropzone.classList.remove("is-dragging");
-  if (!dropzone.contains(event.target) || filesBusy) return;
+  uploadDropzone.classList.remove("is-dragging");
+  const zone = zoneFor(event.target);
+  if (!zone || filesBusy) return;
+  const report = zone === uploadDropzone ? dialogReport : panelReport;
   const files = Array.from(event.dataTransfer.files || []);
   if (!files.length) {
-    showFileError(new Error("The dropped files could not be read. Try choosing them from the file picker."));
+    showFileError(new Error("The dropped files could not be read. Try choosing them from the file picker."), report);
     return;
   }
-  uploadFiles(files);
+  if (zone === uploadDropzone) uploadFromDialog(files);
+  else uploadFiles(files);
 }, true);
 
 refreshFiles.addEventListener("click", async () => {
@@ -198,21 +263,5 @@ fileList.addEventListener("click", async (event) => {
   }
 });
 
-indexFiles.addEventListener("click", async () => {
-  setBusy(true);
-  fileError.hidden = true;
-  fileStatus.textContent = "Indexing documents. This may take a few minutes...";
-  try {
-    const data = await filesRequest("/api/files/index", { method: "POST" });
-    await loadFiles();
-    const failures = data.results.filter((item) => !item.indexed);
-    fileStatus.textContent = `Indexed ${data.results.length - failures.length} documents.`;
-    if (failures.length) showFileError(new Error(failures.map((item) => `${item.name}: ${item.error}`).join("\n")));
-  } catch (error) {
-    showFileError(error);
-  } finally {
-    setBusy(false);
-  }
-});
-
 loadFiles().catch(showFileError);
+pollReading();

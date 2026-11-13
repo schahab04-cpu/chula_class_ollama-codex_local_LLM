@@ -10,7 +10,7 @@ from pathlib import Path
 
 from .documents import DocumentError, SUPPORTED, extract, split_passage
 from .ollama_client import embed, normalized
-from .answering import answer, NOT_FOUND
+from .answering import answer, NOT_FOUND, summarize_document
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +26,7 @@ class KnowledgeBase:
         db = sqlite3.connect(self.folder / "knowledge.sqlite3", timeout=30)
         db.row_factory = sqlite3.Row
         db.execute("CREATE TABLE IF NOT EXISTS documents (id TEXT PRIMARY KEY, fingerprint TEXT, model TEXT, chunks TEXT)")
+        db.execute("CREATE TABLE IF NOT EXISTS summaries (id TEXT PRIMARY KEY, fingerprint TEXT, title TEXT, summary TEXT)")
         try:
             with db:
                 yield db
@@ -40,7 +41,7 @@ class KnowledgeBase:
             row = db.execute("SELECT fingerprint, model FROM documents WHERE id=?", (path.name,)).fetchone()
         return bool(row and row["model"] == self.model and row["fingerprint"] == self.fingerprint(path))
 
-    def index(self, path):
+    def index(self, path, summary_model=None):
         fingerprint = self.fingerprint(path)
         chunks = extract(path)
         vectors = embed([c["text"] for c in chunks], self.model)
@@ -50,18 +51,94 @@ class KnowledgeBase:
         with self.connect() as db:
             db.execute("INSERT OR REPLACE INTO documents VALUES (?, ?, ?, ?)",
                        (path.name, fingerprint, self.model, json.dumps(chunks)))
+        if summary_model:
+            self.summarize(path, fingerprint, [chunk["text"] for chunk in chunks], summary_model)
         return len(chunks)
 
-    def retrieve(self, question):
+    def summarize(self, path, fingerprint, passages, model):
+        """Store a title and summary for routing; failure leaves the passages usable."""
+        try:
+            title, summary = summarize_document(path.name.split("--", 1)[-1], passages, model)
+        except (ValueError, OSError) as error:
+            logger.warning("summary failed for %s: %s; reindex to retry", path.name, error)
+            return
+        with self.connect() as db:
+            db.execute("INSERT OR REPLACE INTO summaries VALUES (?, ?, ?, ?)",
+                       (path.name, fingerprint, title, summary))
+
+    def missing_summaries(self):
+        """Stored rows of current documents that lack a current summary."""
+        names = {p.name for p in self.folder.iterdir() if p.is_file() and not p.is_symlink()
+                 and "--" in p.name and p.suffix.lower() in SUPPORTED} if self.folder.is_dir() else set()
+        with self.connect() as db:
+            rows = db.execute("SELECT d.id, d.fingerprint, d.chunks FROM documents d LEFT JOIN summaries s "
+                              "ON s.id = d.id AND s.fingerprint = d.fingerprint "
+                              "WHERE s.id IS NULL").fetchall()
+        return [row for row in rows if row["id"] in names]
+
+    def fill_missing_summaries(self, model):
+        """Summarize indexed documents that lack a current summary, from their stored passages."""
+        for row in self.missing_summaries():
+            try:
+                passages = [chunk["text"] for chunk in json.loads(row["chunks"])]
+            except (ValueError, TypeError, KeyError):
+                continue
+            logger.info("summarizing %s", row["id"])
+            self.summarize(self.folder / row["id"], row["fingerprint"], passages, model)
+
+    def summaries(self):
+        """Summaries of current, indexed files; stale or deleted documents are left out."""
+        names = {p.name for p in self.folder.iterdir() if p.is_file() and not p.is_symlink()
+                 and "--" in p.name and p.suffix.lower() in SUPPORTED} if self.folder.is_dir() else set()
+        with self.connect() as db:
+            rows = db.execute("SELECT s.id, s.title, s.summary FROM summaries s JOIN documents d "
+                              "ON d.id = s.id AND d.fingerprint = s.fingerprint").fetchall()
+        return [{"file": row["id"].split("--", 1)[-1], "title": row["title"], "summary": row["summary"]}
+                for row in rows if row["id"] in names]
+
+    def forget(self, file_id):
+        with self.connect() as db:
+            db.execute("DELETE FROM documents WHERE id=?", (file_id,))
+            db.execute("DELETE FROM summaries WHERE id=?", (file_id,))
+
+    def warm_up(self, keep_alive):
+        """Load the embedding model now so the first spoken document question does not wait."""
+        embed(["ready"], self.model, query=True, keep_alive=keep_alive)
+
+    def passages(self, names=None, limit=8):
+        """Evenly spaced passages across the documents (or only the named ones), for quizzes
+        about whole documents rather than one topic."""
+        paths = [p for p in self.folder.iterdir() if p.is_file() and not p.is_symlink()
+                 and "--" in p.name and p.suffix.lower() in SUPPORTED] if self.folder.is_dir() else []
+        if names is not None:
+            wanted = {name.casefold() for name in names}
+            paths = [p for p in paths if p.name.split("--", 1)[-1].casefold() in wanted]
+        # Files still being processed, or unreadable, are left out rather than blocking answers.
+        paths = [path for path in paths if self.ready(path)]
+        with self.connect() as db:
+            rows = {row["id"]: row for row in db.execute("SELECT id, chunks FROM documents")}
+        everything = []
+        for path in sorted(paths, key=lambda p: p.name.split("--", 1)[-1].casefold()):
+            stored = json.loads(rows[path.name]["chunks"])
+            everything.extend({"file_id": path.name, "name": path.name.split("--", 1)[-1],
+                               "location": chunk["location"], "text": chunk["text"], "score": 1.0}
+                              for chunk in stored if isinstance(chunk, dict) and str(chunk.get("text", "")).strip())
+        if len(everything) <= limit:
+            return everything
+        step = (len(everything) - 1) / (limit - 1)
+        return [everything[round(i * step)] for i in range(limit)]
+
+    def retrieve(self, question, keep_alive=None):
         self.folder.mkdir(parents=True, exist_ok=True)
         paths = [p for p in self.folder.iterdir() if p.is_file() and not p.is_symlink()
                  and "--" in p.name and p.suffix.lower() in SUPPORTED]
         if not paths:
             return []
-        for path in paths:
-            if not self.ready(path):
-                raise DocumentError("Some documents are not indexed. Click Index documents in the Documents panel.")
-        query = embed([question], self.model, query=True)[0]
+        # Files still being processed, or unreadable, are left out rather than blocking answers.
+        paths = [path for path in paths if self.ready(path)]
+        if not paths:
+            return []
+        query = embed([question], self.model, query=True, keep_alive=keep_alive)[0]
         candidates = []
         question_terms = expanded_terms(question)
         with self.connect() as db:

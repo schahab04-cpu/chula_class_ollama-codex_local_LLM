@@ -97,6 +97,10 @@ class ChatRouteTests(unittest.TestCase):
     def setUp(self):
         self.client = app.test_client()
         self.messages = conversation("What year was France founded?", "51 BC", "Is that right?")
+        # The summary router is a model call; these tests cover the code-decided routes.
+        router = patch("src.app.route_with_summaries", return_value=False)
+        self.route_with_summaries = router.start()
+        self.addCleanup(router.stop)
 
     @patch("src.app.web_answer", return_value=("It began in 843.", []))
     @patch("src.web_search.search", return_value=RESULTS)

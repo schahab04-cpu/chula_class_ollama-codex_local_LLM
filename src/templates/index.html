@@ -3,8 +3,9 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Local Ollama Chat</title>
+  <title>Yapperton</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <script src="{{ url_for('static', filename='quiz.js') }}" defer></script>
   <script src="{{ url_for('static', filename='chat.js') }}" defer></script>
   <script src="{{ url_for('static', filename='files.js') }}" defer></script>
   <script src="{{ url_for('static', filename='vendor/vad/ort.wasm.min.js') }}" defer></script>
@@ -13,13 +14,39 @@
   <script src="{{ url_for('static', filename='voice.js') }}" defer></script>
 </head>
 <body>
-  <main class="workspace">
+  <main id="voice-view" class="voice-view" aria-label="Voice conversation" data-state="ready">
+    <canvas id="voice-wisp" aria-hidden="true"></canvas>
+    <aside id="voice-quiz" class="voice-quiz" aria-label="Quiz" hidden>
+      <button id="voice-quiz-close" type="button" class="voice-quiz-close" aria-label="Close quiz">×</button>
+      <div id="voice-quiz-body"></div>
+    </aside>
+    <header class="voice-top">
+      <p class="voice-brand">Yapperton <span>Local assistant · Qwen on Ollama · your documents</span></p>
+      <button id="workspace-open" type="button" class="voice-button">Chat &amp; documents</button>
+    </header>
+    <div class="voice-panel">
+      <p id="voice-status" role="status" aria-live="polite"></p>
+      <p id="voice-heard" class="voice-heard"></p>
+      <p id="voice-caption" class="voice-caption"></p>
+      <p id="voice-sources" class="voice-sources"></p>
+      <p id="voice-error" class="voice-error" role="alert" hidden></p>
+      <button id="voice-start" type="button" class="voice-start" hidden>Start talking</button>
+      <p id="voice-unavailable" class="voice-unavailable" hidden></p>
+      <div id="voice-controls" class="voice-controls" hidden>
+        <button id="voice-skip" type="button" class="voice-button" disabled>Skip <kbd>Space</kbd></button>
+        <button id="voice-mute" type="button" class="voice-button" aria-pressed="false">Mute <kbd>M</kbd></button>
+        <button id="voice-end" type="button" class="voice-button">End <kbd>Esc</kbd></button>
+      </div>
+    </div>
+  </main>
+  <dialog id="workspace" class="workspace-dialog" aria-label="Chat and documents">
+  <div class="workspace">
   <section id="chat-view" class="chat" aria-label="Chat">
     <header>
       <div><h1>Local chat</h1><p>Local Ollama | General answers, or answers from your files with sources</p></div>
       <div class="chat-actions">
-        <button id="voice-open" type="button" hidden>Voice</button>
         <button id="clear" type="button" class="secondary">New chat</button>
+        <button id="workspace-close" type="button">Back to voice</button>
       </div>
     </header>
     <section id="conversation" role="log" aria-label="Conversation" aria-live="polite">
@@ -52,10 +79,24 @@
     <p id="file-status" role="status" aria-live="polite"></p>
     <p id="file-error" role="alert" hidden></p>
     <ul id="file-list" aria-label="Uploaded files"></ul>
-    <button id="index-files" class="secondary index-button" type="button">Index documents</button>
-    <p class="collector-note">Questions that match indexed documents are answered from them. Click a PDF's name to preview it (other files download), or use × to remove a file. Scanned PDFs need OCR before upload.</p>
+    <p class="collector-note">Documents are read automatically after upload; Yapperton pauses until they are ready. Click a PDF's name to preview it (other files download), or use × to remove a file. Scanned PDFs need OCR before upload.</p>
   </aside>
-  </main>
+  </div>
+  </dialog>
+  <dialog id="upload-dialog" class="upload-dialog" aria-labelledby="upload-title">
+    <header>
+      <h2 id="upload-title">Add documents</h2>
+      <button id="upload-close" class="secondary" type="button">Done</button>
+    </header>
+    <label id="upload-dropzone" class="dropzone" for="upload-input">
+      <input id="upload-input" type="file" accept=".pdf,.docx,.txt,.md" multiple>
+      <span class="dropzone-title">Drop documents here</span>
+      <span>or click to choose files</span>
+      <span class="dropzone-hint">PDF, DOCX, TXT or MD · up to 20 MiB each</span>
+    </label>
+    <p id="upload-status" class="upload-status" role="status" aria-live="polite"></p>
+    <p id="upload-error" class="upload-error" role="alert" hidden></p>
+  </dialog>
   <dialog id="preview-dialog" class="preview-dialog" aria-labelledby="preview-title">
     <header>
       <h2 id="preview-title"></h2>
@@ -65,20 +106,6 @@
       </div>
     </header>
     <iframe id="preview-frame" title="PDF preview"></iframe>
-  </dialog>
-  <dialog id="voice-view" class="voice-view" aria-label="Voice conversation" data-state="loading">
-    <canvas id="voice-wisp" aria-hidden="true"></canvas>
-    <div class="voice-panel">
-      <p id="voice-status" role="status" aria-live="polite"></p>
-      <p id="voice-heard" class="voice-heard"></p>
-      <p id="voice-caption" class="voice-caption"></p>
-      <p id="voice-error" class="voice-error" role="alert" hidden></p>
-      <div class="voice-controls">
-        <button id="voice-skip" type="button" class="voice-button" disabled>Skip <kbd>Space</kbd></button>
-        <button id="voice-mute" type="button" class="voice-button" aria-pressed="false">Mute <kbd>M</kbd></button>
-        <button id="voice-end" type="button" class="voice-button">End</button>
-      </div>
-    </div>
   </dialog>
 </body>
 </html>

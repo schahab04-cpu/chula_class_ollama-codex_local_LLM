@@ -68,12 +68,12 @@ def main():
     report = {"documents": audit(folder)}
     if args.question:
         if not (folder / "knowledge.sqlite3").exists():
-            parser.error("No index exists. Index documents in the Documents panel first.")
+            parser.error("No index exists yet. Upload a document, or start the app so existing files are read.")
         sources = KnowledgeBase(folder).retrieve(args.question)
         report["retrieval"] = [{**source, "missing_question_terms": sorted(terms(args.question) - terms(source["text"]))}
                                for source in sources]
         if args.answer:
-            report["answer"], report["citations"] = answer(args.question, sources, "qwen3:1.7b")
+            report["answer"], report["citations"] = answer(args.question, sources, "qwen3.5:9b")
     print(json.dumps(report, ensure_ascii=True, indent=2))
 
 

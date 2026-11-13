@@ -7,6 +7,19 @@ const status = document.querySelector("#status");
 const error = document.querySelector("#error");
 let messages = [];
 let busy = false;
+// Set from files.js while documents are indexed or summarized; questions wait until then.
+let readingDocuments = "";
+
+function updateChatControls() {
+  send.disabled = prompt.disabled = busy || Boolean(readingDocuments);
+  clear.disabled = busy;
+  if (!busy) status.textContent = readingDocuments ? `${readingDocuments}… Yapperton will answer when it is ready.` : "";
+}
+
+document.addEventListener("documents-busy", (event) => {
+  readingDocuments = event.detail.busy ? (event.detail.detail || "Reading your documents") : "";
+  updateChatControls();
+});
 
 function appendLinkedText(element, content) {
   let offset = 0;
@@ -37,12 +50,12 @@ function appendLinkedText(element, content) {
   element.append(document.createTextNode(content.slice(offset)));
 }
 
-function appendMessage(role, content, sources = [], mode = "") {
+function appendMessage(role, content, sources = [], mode = "", quiz = null) {
   document.querySelector("#empty")?.remove();
   const article = document.createElement("article");
   article.className = `message ${role}`;
   const label = document.createElement("strong");
-  label.textContent = role === "user" ? "You" : "Qwen";
+  label.textContent = role === "user" ? "You" : "Yapperton";
   const text = document.createElement("p");
   if (role === "assistant") {
     appendLinkedText(text, content);
@@ -61,6 +74,7 @@ function appendMessage(role, content, sources = [], mode = "") {
     note.textContent = "Checked online; search results can be wrong too";
     article.append(note);
   }
+  if (quiz) article.append(renderQuiz(quiz));
   for (const [index, source] of sources.entries()) {
     const link = document.createElement("a");
     link.textContent = `[${index + 1}] ${source.name} - ${source.location}`;
@@ -93,9 +107,9 @@ function appendMessage(role, content, sources = [], mode = "") {
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
   const content = prompt.value.trim();
-  if (busy || !content) return;
+  if (busy || readingDocuments || !content) return;
   busy = true;
-  send.disabled = clear.disabled = prompt.disabled = true;
+  updateChatControls();
   error.hidden = true;
   status.setAttribute("aria-busy", "true");
   status.textContent = "Thinking...";
@@ -111,8 +125,10 @@ form.addEventListener("submit", async (event) => {
     const data = await response.json();
     if (!response.ok) throw new Error(data.error || "The request failed. Please try again.");
     if (typeof data.message?.content !== "string") throw new Error("The server returned an invalid answer.");
-    messages.push(pending, data.message);
-    appendMessage("assistant", data.message.content, data.sources || [], data.mode);
+    // The mode lets voice follow-ups know the last answer came from the documents.
+    messages.push(pending, { ...data.message, mode: data.mode });
+    appendMessage("assistant", data.message.content, data.sources || [], data.mode, data.quiz);
+    if (data.mode === "upload") openUploadDialog();
   } catch (failure) {
     bubble.remove();
     prompt.value = content;
@@ -122,9 +138,8 @@ form.addEventListener("submit", async (event) => {
     error.hidden = false;
   } finally {
     busy = false;
-    send.disabled = clear.disabled = prompt.disabled = false;
     status.setAttribute("aria-busy", "false");
-    status.textContent = "";
+    updateChatControls();
     prompt.focus();
   }
 });
