@@ -176,7 +176,7 @@ def select_evidence(question, sources, model):
     context = [{"id": i, "file": source["name"], "location": source["location"],
                 "text": source["text"]} for i, source in enumerate(sources, 1)]
     result = ollama("chat", {
-        "model": model, "stream": False, "format": schema,
+        "model": model, "stream": False, "think": False, "format": schema,
         "options": {"temperature": 0, "num_ctx": 16384, "num_predict": 2048},
         "messages": [
             {"role": "system", "content": (
@@ -451,7 +451,7 @@ def answer(question, sources, model):
     context = [{"file": s["name"], "location": s["location"], "text": s["text"]}
                for s in sources]
     result = ollama("chat", {
-        "model": model, "stream": False, "format": schema,
+        "model": model, "stream": False, "think": False, "format": schema,
         "options": {"temperature": 0, "num_ctx": 16384, "num_predict": 2048},
         "messages": [
             {"role": "system", "content": system},

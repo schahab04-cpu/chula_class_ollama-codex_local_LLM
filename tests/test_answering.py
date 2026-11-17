@@ -281,3 +281,15 @@ class SummaryRoutingTests(unittest.TestCase):
         self.assertEqual(answering.strip_echo("Neutraceuticals? It is a plan.", "Neutraceuticals?"),
                          "Neutraceuticals? It is a plan.")
 
+
+
+class ThinkingTests(unittest.TestCase):
+    """Qwen 3.5 thinks by default (about 100 s per call on an M3 Air), so every call must say."""
+
+    @patch("src.answering.ollama")
+    def test_document_calls_turn_thinking_off(self, ollama):
+        sources = [{"file_id": "a--n.txt", "name": "n.txt", "location": "Page 1", "text": "Launch is in June."}]
+        ollama.side_effect = [{"message": {"content": '{"passages": [1]}'}},
+                              {"message": {"content": '{"answer": "Launch is in June."}'}}]
+        answering.answer("When is launch?", sources, "m")
+        self.assertEqual([call.args[1].get("think") for call in ollama.call_args_list], [False, False])

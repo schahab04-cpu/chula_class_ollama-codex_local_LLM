@@ -91,10 +91,10 @@ def focus_points(sources):
             for source, parts in zip(sources, sentences) if i < len(parts)]
 
 
-# Qwen 3's thinking mode for writing questions. Measured on a lecture PDF: with thinking, 5 of 5
-# questions kept in about 11 minutes; without, 1 of 15 kept in 3.5 minutes (and that one copied
-# the prompt's example). Slow is acceptable for quizzes.
-QUIZ_THINKING = True
+# Thinking mode for writing questions. qwen3:1.7b needed it (with: 5 of 5 kept in 11 minutes;
+# without: 1 of 15, copying the prompt's example). qwen3.5:9b writes good questions without it
+# (5 of 5 kept in 7 attempts), and thinking would cost it a minute or more per question.
+QUIZ_THINKING = False
 EXAMPLE_QUESTION = ("A startup wants to know whether its market will still be growing in five years. "
                     "Which part of the industry analysis answers that?")
 QUESTION_GUIDE = (
