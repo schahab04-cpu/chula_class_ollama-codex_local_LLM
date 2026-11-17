@@ -50,6 +50,7 @@ general chat plus document-based RAG with generated explanations. Do not treat t
   faster-whisper and kokoro-onnx elsewhere), separate from `requirements.txt`.
 - `src/ollama_service.py`: at launch, starts Ollama when it is off (desktop app first, then
   `ollama serve`, detached, log in `.tmp/ollama.log`) and logs missing models.
+- `video/`: presentation video tooling (not part of the app). `scenes.py` holds the storyboard; `make_video.sh` records the voice demo with Playwright (browsers in `.tmp/ms-playwright`) and `build.py` edits it with Kokoro narration, captions and synthesized music into `.tmp/video/yapperton_presentation.mp4`. Recording uploads the demo lecture to `uploads/`.
 - `.tmp/`: upload scratch files, local installation scratch files and server logs
   when launched with output redirection (ignored).
 
@@ -222,8 +223,9 @@ the JavaScript files without installing frontend packages.
   passage were good questions in testing; the self-check handles ambiguity.
 - Question writing uses `QUESTION_GUIDE` (exam-style: scenarios, purpose, cause, distinctions;
   standalone wording; parallel options; teaching explanations) with Qwen thinking on
-  (`QUIZ_THINKING`). Measured on a lecture PDF: thinking kept 5 of 5 in ~11 minutes; without it
-  1 of 15 in ~3.5 minutes, and that one copied the prompt's example. Code also drops questions
+  (`QUIZ_THINKING`, now off: qwen3.5:9b kept 5 of 5 in 7 attempts without it, while qwen3:1.7b
+  needed it). Qwen 3.5 thinks by default, so every model call must set `think` explicitly;
+  unset, one document question took over three minutes. Code also drops questions
   that mention the source text (`_META`), whose answer words are already in the question
   (`_gives_away`, 5-letter stems), whose correct answer is much longer than the distractors,
   or that copy `EXAMPLE_QUESTION`. The input keys are `study_material` and `key_idea` so the
